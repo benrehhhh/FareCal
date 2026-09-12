@@ -4,11 +4,14 @@ Every route here is protected with @admin_required (login required + role
 must be 'admin'). Regular users who type an admin URL get a friendly 403 page.
 """
 
+import csv
+import io
 from datetime import date, datetime
 
 import pymysql
 from flask import (
     Blueprint,
+    Response,
     flash,
     redirect,
     render_template,
@@ -826,6 +829,121 @@ def audit():
         total_pages=total_pages,
         total=total,
         q=q,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Exports (CSV)
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/admin/export/calculations.csv")
+@admin_required
+def export_calculations():
+    """Download every saved calculation as a CSV file (honors the `q` filter)."""
+    q = request.args.get("q", "").strip()
+
+    filter_sql = ""
+    params = []
+    if q:
+        like = f"%{q}%"
+        filter_sql = (
+            " WHERE (tt.name LIKE %s OR pt.name LIKE %s"
+            " OR COALESCE(u.name, 'Guest') LIKE %s)"
+        )
+        params = [like, like, like]
+
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT fc.id, fc.distance, fc.regular_fare, fc.discount_percentage,
+                   fc.discount_amount, fc.final_fare, fc.calculated_at,
+                   tt.name AS transport_name, pt.name AS passenger_name,
+                   COALESCE(u.name, 'Guest') AS user_name
+            FROM fare_calculations fc
+            JOIN transport_types tt ON tt.id = fc.transport_type_id
+            JOIN passenger_types pt ON pt.id = fc.passenger_type_id
+            LEFT JOIN users u ON u.id = fc.user_id
+            {filter_sql}
+            ORDER BY fc.calculated_at DESC, fc.id DESC
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "Date",
+            "User",
+            "Transport",
+            "Distance (km)",
+            "Passenger",
+            "Regular Fare (PHP)",
+            "Discount (%)",
+            "Discount (PHP)",
+            "Final Fare (PHP)",
+        ]
+    )
+    for r in rows:
+        writer.writerow(
+            [
+                r["calculated_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                r["user_name"],
+                r["transport_name"],
+                f'{float(r["distance"]):.2f}',
+                r["passenger_name"],
+                f'{float(r["regular_fare"]):.2f}',
+                f'{float(r["discount_percentage"]):.2f}',
+                f'{float(r["discount_amount"]):.2f}',
+                f'{float(r["final_fare"]):.2f}',
+            ]
+        )
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=farecal_calculations.csv"
+        },
+    )
+
+
+@admin_bp.route("/admin/export/users.csv")
+@admin_required
+def export_users():
+    """Download all user accounts as a CSV file."""
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, name, email, role, status, created_at
+            FROM users
+            ORDER BY created_at DESC, id DESC
+            """
+        )
+        rows = cur.fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Name", "Email", "Role", "Status", "Created At"])
+    for r in rows:
+        writer.writerow(
+            [
+                r["id"],
+                r["name"],
+                r["email"],
+                r["role"],
+                r["status"],
+                r["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+            ]
+        )
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=farecal_users.csv"},
     )
 
 

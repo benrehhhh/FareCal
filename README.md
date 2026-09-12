@@ -14,17 +14,29 @@ vanilla JavaScript.
 ## Features
 
 - **Fare calculator** — pick a transport type, passenger type (discounts
-  applied automatically), and distance; get an instant estimate.
+  applied automatically), and distance; get an instant estimate. Common-route
+  presets auto-fill the distance, and you can print a receipt-style estimate.
+- **Public fare structure page** — shows the current official rate per
+  transport type with sample fares at 2 / 5 / 10 / 20 km (regular and
+  discounted).
+- **Official LTFRB rates** — `database/load_official_rates.py` loads the
+  current published rates (PUJ, modernized PUJ, bus, taxi, UV Express) as the
+  active rates with their LTFRB source references.
 - **Accounts** — register, log in/out, change password, delete your account.
-- **Personal dashboard** — quick stats and your most recent calculations.
+- **Dashboard** — quick stats, recent calculations with one-click
+  **Recalculate** links, and a **My Saved Trips** list (save any trip straight
+  from the calculator, then re-open or delete it anytime).
 - **History** — browse your saved calculations with search and pagination, and
   export them as CSV.
 - **Admin panel** — manage users, transport types, fare rates, passenger
-  types, and all saved calculations. Delete actions are protected by foreign-key
-  guardrails (e.g. a transport type is not deletable while calculations
-  reference it).
+  types, common routes, and all saved calculations. Every entity can be
+  added, **edited**, activated/deactivated, and deleted (delete actions are
+  protected by foreign-key guardrails). Admins can reset any user's password,
+  and export all calculations or all users as CSV.
 - **Security** — password hashing (Werkzeug), CSRF protection on all HTML
-  forms, role-based access control.
+  forms, role-based access control, **login throttling** (accounts lock after
+  repeated failed attempts), and a searchable **audit log** of admin and
+  security events.
 
 ## Technology Stack
 
@@ -46,9 +58,10 @@ FareCal/
 │   ├── connection.py       # PyMySQL connection helper
 │   ├── schema.sql          # Database schema + sample seed data
 │   ├── setup_db.py         # Creates the database and default admin
-│   └── (optional)         # e.g. load_official_rates.py data-loading scripts
+│   └── load_official_rates.py  # (optional) loads current LTFRB rates
 ├── routes/                 # Flask blueprints (auth, fare, user, admin)
 ├── services/               # Business logic (fare_calculator.py)
+├── utils/                  # Cross-cutting helpers (csrf, decorators, audit)
 ├── templates/              # Jinja2 templates (incl. admin/ layout)
 ├── static/                 # CSS, JS, favicon, Bootstrap vendor files
 └── tests/                  # unittest suites:
@@ -128,6 +141,9 @@ python -m unittest discover -s tests
 | `DB_PASSWORD`     | MySQL password                                   |
 | `ADMIN_EMAIL`     | Default admin email used by setup_db.py          |
 | `ADMIN_PASSWORD`  | Default admin password used by setup_db.py       |
+| `MAX_DISTANCE_KM` | Largest distance the calculator accepts (default `500`) |
+| `MAX_LOGIN_ATTEMPTS` | Failed logins before the account locks (default `5`) |
+| `LOGIN_LOCKOUT_SECONDS` | How long a lockout lasts (default `900` = 15 min) |
 
 ## Development Notes
 

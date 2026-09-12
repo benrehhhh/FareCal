@@ -21,6 +21,11 @@
             <a href="{{ url_for('admin.users') }}" class="btn btn-outline-secondary">Clear</a>
         {% endif %}
     </div>
+    <div class="col-auto ms-auto">
+        <a href="{{ url_for('admin.export_users') }}" class="btn btn-outline-secondary">
+            Export CSV
+        </a>
+    </div>
 </form>
 
 <div class="card border-0 shadow-sm">

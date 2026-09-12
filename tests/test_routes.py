@@ -17,6 +17,7 @@ from database.connection import get_connection
 
 TEMP_USER = "it-user@farecal.ph"
 TEMP_PASSWORD = "password1234"
+LOCK_USER = "it-lock@farecal.ph"
 ADMIN_EMAIL = "admin@farecal.ph"
 ADMIN_PASSWORD = "admin123"
 
@@ -39,7 +40,27 @@ class RouteTestCase(unittest.TestCase):
                 "(SELECT id FROM users WHERE email = %s)",
                 (TEMP_USER,),
             )
-            cur.execute("DELETE FROM users WHERE email = %s", (TEMP_USER,))
+            cur.execute(
+                "DELETE st FROM saved_trips st JOIN users u ON u.id = st.user_id "
+                "WHERE u.email IN (%s, %s)",
+                (TEMP_USER, LOCK_USER),
+            )
+            cur.execute(
+                "DELETE FROM login_attempts WHERE email IN (%s, %s)",
+                (TEMP_USER, LOCK_USER),
+            )
+            cur.execute(
+                "DELETE FROM audit_log WHERE user_id IN "
+                "(SELECT id FROM users WHERE email IN (%s, %s)) "
+                "OR details LIKE %s OR details LIKE %s "
+                "OR details LIKE %s OR details LIKE %s",
+                (TEMP_USER, LOCK_USER, "IT TEST %", "IT PASS %",
+                 "it-user@%", "it-lock@%"),
+            )
+            cur.execute(
+                "DELETE FROM users WHERE email IN (%s, %s)",
+                (TEMP_USER, LOCK_USER),
+            )
             cur.execute(
                 "DELETE FROM fare_calculations WHERE transport_type_id IN "
                 "(SELECT id FROM transport_types WHERE name LIKE 'IT TEST %%')"
@@ -494,6 +515,234 @@ class RouteTestCase(unittest.TestCase):
                 self.assertIsNone(cur.fetchone())
         finally:
             conn.close()
+
+    # -------------------------------------------------- M15: admin editing
+    def test_admin_edit_transport_type(self):
+        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
+        self._post(
+            "/admin/transport-types",
+            {"name": "IT TEST Editable", "description": ""},
+            "/admin/transport-types",
+        )
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM transport_types WHERE name='IT TEST Editable'")
+                tt_id = cur.fetchone()["id"]
+        finally:
+            conn.close()
+
+        body = self.client.get(f"/admin/transport-types/{tt_id}/edit")
+        self.assertEqual(body.status_code, 200)
+        self.assertIn("IT TEST Editable", body.get_data(as_text=True))
+
+        self._post(
+            f"/admin/transport-types/{tt_id}/edit",
+            {"name": "IT TEST Renamed", "description": "updated by test"},
+            f"/admin/transport-types/{tt_id}/edit",
+        )
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, description FROM transport_types WHERE id=%s",
+                    (tt_id,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["name"], "IT TEST Renamed")
+        self.assertEqual(row["description"], "updated by test")
+
+    def test_admin_edit_passenger_type(self):
+        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO passenger_types (name, discount_percentage) "
+                    "VALUES ('IT PASS Edit', 10.00)",
+                )
+                pt_id = cur.lastrowid
+        finally:
+            conn.close()
+
+        self._post(
+            f"/admin/passenger-types/{pt_id}/edit",
+            {"name": "IT PASS Renamed", "discount_percentage": "25.00",
+             "description": "updated by test"},
+            f"/admin/passenger-types/{pt_id}/edit",
+        )
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, discount_percentage FROM passenger_types WHERE id=%s",
+                    (pt_id,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["name"], "IT PASS Renamed")
+        self.assertEqual(float(row["discount_percentage"]), 25.00)
+
+    def test_admin_reset_password(self):
+        self._login_as_temp_user()
+        self._post("/logout", {}, "/account")
+        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM users WHERE email=%s", (TEMP_USER,))
+                uid = cur.fetchone()["id"]
+        finally:
+            conn.close()
+
+        self._post(
+            f"/admin/users/{uid}/reset-password",
+            {"new_password": "brandnew99", "confirm_password": "brandnew99"},
+            f"/admin/users/{uid}/reset-password",
+        )
+        self._post("/logout", {}, "/account")
+        response = self._login(TEMP_USER, "brandnew99")
+        self.assertEqual(response.status_code, 302)
+
+    # ------------------------------------------- M16: saved trips + recalc
+    def test_saved_trip_save_dedupe_and_delete(self):
+        self._login_as_temp_user()
+        transport_id, passenger_id = self._active_ids()
+        payload = {"transport_type_id": transport_id,
+                   "passenger_type_id": passenger_id, "distance": 5}
+
+        data = self.client.post("/api/saved-trips", json=payload).get_json()
+        self.assertTrue(data["success"])
+        self.assertFalse(data["already_saved"])
+        trip_id = data["trip_id"]
+
+        duplicate = self.client.post("/api/saved-trips", json=payload).get_json()
+        self.assertTrue(duplicate["already_saved"])
+        self.assertEqual(duplicate["trip_id"], trip_id)
+
+        body = self.client.get("/dashboard").get_data(as_text=True)
+        self.assertIn("My Saved Trips", body)
+        self.assertIn(f"/saved-trips/{trip_id}/delete", body)
+
+        self._post(f"/saved-trips/{trip_id}/delete", {}, "/dashboard")
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) c FROM saved_trips WHERE id=%s", (trip_id,))
+                self.assertEqual(cur.fetchone()["c"], 0)
+        finally:
+            conn.close()
+
+    def test_saved_trip_requires_login(self):
+        transport_id, passenger_id = self._active_ids()
+        response = app.test_client().post(
+            "/api/saved-trips",
+            json={"transport_type_id": transport_id,
+                  "passenger_type_id": passenger_id, "distance": 5},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_saved_trip_rejects_invalid_distance(self):
+        self._login_as_temp_user()
+        transport_id, passenger_id = self._active_ids()
+        response = self.client.post(
+            "/api/saved-trips",
+            json={"transport_type_id": transport_id,
+                  "passenger_type_id": passenger_id, "distance": -1},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    # -------------------------------------- M17: login lockout + audit log
+    def test_login_locked_after_repeated_failures(self):
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users (name, email, password_hash, role) "
+                    "VALUES (%s, %s, %s, 'user')",
+                    ("IT Lock User", LOCK_USER, generate_password_hash("lockpass99")),
+                )
+        finally:
+            conn.close()
+
+        for _ in range(5):
+            response = self._post(
+                "/login", {"email": LOCK_USER, "password": "wrongpass1"}, "/login"
+            )
+            self.assertEqual(response.status_code, 200)
+
+        locked = self._login(LOCK_USER, "lockpass99")
+        self.assertIn("Too many failed login attempts", locked.get_data(as_text=True))
+
+    def test_audit_log_records_and_page(self):
+        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
+
+        self._post(
+            "/admin/transport-types",
+            {"name": "IT TEST Audited", "description": ""},
+            "/admin/transport-types",
+        )
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) c FROM audit_log "
+                    "WHERE action='admin.add_transport_type' "
+                    "AND details='IT TEST Audited'"
+                )
+                self.assertGreaterEqual(cur.fetchone()["c"], 1)
+                cur.execute("SELECT id FROM transport_types WHERE name='IT TEST Audited'")
+                tt_id = cur.fetchone()["id"]
+        finally:
+            conn.close()
+
+        self._post(f"/admin/transport-types/{tt_id}/toggle", {}, "/admin/transport-types")
+        body = self.client.get("/admin/audit").get_data(as_text=True)
+        self.assertIn("admin.", body)
+
+        search = self.client.get("/admin/audit?q=Audited").get_data(as_text=True)
+        self.assertIn("IT TEST Audited", search)
+
+        self.assertEqual(app.test_client().get("/admin/audit").status_code, 302)
+
+    # --------------------------------------------- M18: admin CSV exports
+    def test_admin_export_calculations_csv(self):
+        self._login_as_temp_user()
+        transport_id, passenger_id = self._active_ids()
+        self.client.post(
+            "/api/calculate-fare",
+            json={"transport_type_id": transport_id,
+                  "passenger_type_id": passenger_id, "distance": 5},
+        )
+        self._post("/logout", {}, "/account")
+        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
+
+        response = self.client.get("/admin/export/calculations.csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type.split(";")[0], "text/csv")
+        body = response.get_data(as_text=True)
+        self.assertIn("Transport", body.splitlines()[0])
+        self.assertGreaterEqual(len(body.splitlines()), 2)
+
+    def test_admin_export_users_csv(self):
+        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
+        response = self.client.get("/admin/export/users.csv")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type.split(";")[0], "text/csv")
+        body = response.get_data(as_text=True)
+        self.assertIn("Email", body.splitlines()[0])
+        self.assertIn(ADMIN_EMAIL, body)
+
+    def test_admin_exports_require_admin(self):
+        for path in ("/admin/export/calculations.csv", "/admin/export/users.csv"):
+            self.assertEqual(app.test_client().get(path).status_code, 302, path)
+        self._login_as_temp_user()
+        for path in ("/admin/export/calculations.csv", "/admin/export/users.csv"):
+            self.assertEqual(self.client.get(path).status_code, 403, path)
 
 
 if __name__ == "__main__":
