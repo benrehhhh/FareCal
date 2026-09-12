@@ -52,6 +52,8 @@ function showResult(calc) {
     setResultText("resultDiscountRate", `${Number(calc.discount_percentage).toFixed(0)}%`);
     setResultText("resultDiscountAmount", currency.format(calc.discount_amount));
     setResultText("resultFinalFare", currency.format(calc.final_fare));
+    document.getElementById("resultPrintMeta").textContent =
+        `Generated ${new Date().toLocaleString()}`;
 
     // Notes: minimum / maximum fare applied.
     const notes = [];

@@ -3,7 +3,7 @@
 <div class="row justify-content-center g-4">
 
     <!-- Calculator form -->
-    <div class="col-lg-5">
+    <div class="col-lg-5 print-hide">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-white fw-bold">
                 Calculate Your Fare
@@ -64,10 +64,18 @@
     <!-- Result panel -->
     <div class="col-lg-7">
         <div class="card border-0 shadow-sm h-100 d-none" id="resultPanel">
-            <div class="card-header bg-white fw-bold">
-                Fare Breakdown
+            <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+                <span>Fare Breakdown</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary print-hide"
+                        onclick="window.print()">
+                    Print estimate
+                </button>
             </div>
             <div class="card-body">
+                <div class="print-only mb-3">
+                    <h5 class="fw-bold mb-0">FareCal — Fare Estimate</h5>
+                    <div class="small text-muted" id="resultPrintMeta"></div>
+                </div>
                 <dl class="row mb-0">
                     <dt class="col-sm-5">Transportation</dt>
                     <dd class="col-sm-7" id="resultTransport">—</dd>

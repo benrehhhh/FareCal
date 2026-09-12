@@ -129,3 +129,48 @@ a:hover {
     color: #ffffff;
     font-weight: 600;
 }
+
+/* -----------------------------------------------------------
+   Print receipt
+   The fare breakdown panel can be printed as a receipt.
+   ----------------------------------------------------------- */
+.print-only {
+    display: none;
+}
+
+@media print {
+    .print-hide {
+        display: none !important;
+    }
+
+    .print-only {
+        display: block !important;
+    }
+
+    .app-header,
+    .app-footer {
+        display: none !important;
+    }
+
+    body {
+        background-color: #ffffff !important;
+        color: #000000;
+    }
+
+    main.container {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+
+    #resultPanel {
+        display: block !important;
+        border: 1px solid #000000;
+        box-shadow: none !important;
+    }
+
+    #resultPanel .card-header {
+        border-bottom: 1px solid #000000;
+        background: none !important;
+    }
+}
