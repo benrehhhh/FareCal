@@ -139,6 +139,32 @@ CREATE TABLE IF NOT EXISTS routes (
         ON DELETE CASCADE
 ) ENGINE = InnoDB;
 
+-- -------------------------------------------------------------------
+-- saved_trips  (a logged-in user's bookmarked fare estimates)
+-- Snapshot amounts are stored so the list keeps working even when a
+-- fare rate later changes.
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS saved_trips (
+    id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id           INT UNSIGNED NOT NULL,
+    transport_type_id INT UNSIGNED NOT NULL,
+    passenger_type_id INT UNSIGNED NOT NULL,
+    distance_km       DECIMAL(10, 2) NOT NULL,
+    regular_fare      DECIMAL(10, 2) NOT NULL,
+    discount_amount   DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    final_fare        DECIMAL(10, 2) NOT NULL,
+    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_saved_trips_user (user_id),
+    CONSTRAINT fk_saved_trips_user
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_saved_trips_transport_type
+        FOREIGN KEY (transport_type_id) REFERENCES transport_types (id),
+    CONSTRAINT fk_saved_trips_passenger_type
+        FOREIGN KEY (passenger_type_id) REFERENCES passenger_types (id)
+) ENGINE = InnoDB;
+
 -- ===================================================================
 -- SAMPLE SEED DATA
 -- These values are TEST data, not official fare rates.

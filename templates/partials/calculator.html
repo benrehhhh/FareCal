@@ -1,3 +1,8 @@
+<script>
+    window.FareCalConfig = window.FareCalConfig || {};
+    window.FareCalConfig.loggedIn = {{ 'true' if current_user else 'false' }};
+</script>
+
 <div id="calculatorAlert"></div>
 
 <div class="row justify-content-center g-4">
@@ -66,10 +71,16 @@
         <div class="card border-0 shadow-sm h-100 d-none" id="resultPanel">
             <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
                 <span>Fare Breakdown</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary print-hide"
-                        onclick="window.print()">
-                    Print estimate
-                </button>
+                <span class="print-hide">
+                    <button type="button" class="btn btn-sm btn-outline-success d-none"
+                            id="saveTripBtn">
+                        Save this trip
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            onclick="window.print()">
+                        Print estimate
+                    </button>
+                </span>
             </div>
             <div class="card-body">
                 <div class="print-only mb-3">

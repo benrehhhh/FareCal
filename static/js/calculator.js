@@ -9,6 +9,7 @@ const API = {
     passengerTypes: "/api/passenger-types",
     calculateFare: "/api/calculate-fare",
     routes: "/api/routes",
+    saveTrip: "/api/saved-trips",
 };
 
 const currency = new Intl.NumberFormat("en-PH", {
@@ -40,7 +41,10 @@ function setResultText(id, text) {
     document.getElementById(id).textContent = text;
 }
 
+let lastResult = null;
+
 function showResult(calc) {
+    lastResult = calc;
     document.getElementById("resultPlaceholder").classList.add("d-none");
     const panel = document.getElementById("resultPanel");
     panel.classList.remove("d-none");
@@ -54,6 +58,15 @@ function showResult(calc) {
     setResultText("resultFinalFare", currency.format(calc.final_fare));
     document.getElementById("resultPrintMeta").textContent =
         `Generated ${new Date().toLocaleString()}`;
+
+    // "Save this trip" is only available to logged-in users.
+    if (window.FareCalConfig && window.FareCalConfig.loggedIn) {
+        const saveBtn = document.getElementById("saveTripBtn");
+        saveBtn.classList.remove("d-none");
+        saveBtn.textContent = "Save this trip";
+        saveBtn.disabled = false;
+    }
+}
 
     // Notes: minimum / maximum fare applied.
     const notes = [];
@@ -179,11 +192,80 @@ async function loadOptions() {
         );
         populateRoutes(document.getElementById("routePreset"), routes);
         updateDiscountHint();
+        applyUrlParams();
     } catch (error) {
         showAlert(
             "Unable to load the fare options. Please refresh the page.",
             "danger"
         );
+    }
+}
+
+function applyUrlParams() {
+    // Prefill the form from ?transport_type_id=&passenger_type_id=&distance=
+    // (used by the "Recalculate" links on History / Dashboard).
+    const params = new URLSearchParams(window.location.search);
+    const transportId = params.get("transport_type_id");
+    const passengerId = params.get("passenger_type_id");
+    const distance = params.get("distance");
+
+    const transportSelect = document.getElementById("transportType");
+    if (transportId && Array.from(transportSelect.options).some(
+        (option) => option.value === transportId
+    )) {
+        transportSelect.value = transportId;
+    }
+
+    const passengerSelect = document.getElementById("passengerType");
+    if (passengerId && Array.from(passengerSelect.options).some(
+        (option) => option.value === passengerId
+    )) {
+        passengerSelect.value = passengerId;
+        updateDiscountHint();
+    }
+
+    if (distance) {
+        const parsed = Number(distance);
+        if (Number.isFinite(parsed) && parsed > 0 && parsed <= 500) {
+            document.getElementById("distance").value = parsed.toFixed(2);
+        }
+    }
+}
+
+async function saveTrip() {
+    if (!lastResult) {
+        return;
+    }
+    const saveBtn = document.getElementById("saveTripBtn");
+    saveBtn.disabled = true;
+
+    try {
+        const response = await fetch(API.saveTrip, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                transport_type_id: lastResult.transport_type_id,
+                passenger_type_id: lastResult.passenger_type_id,
+                distance: lastResult.distance_km,
+            }),
+        });
+        const data = await response.json();
+
+        if (!data.success) {
+            showAlert(data.message || "Unable to save the trip.", "danger");
+            saveBtn.disabled = false;
+            return;
+        }
+        saveBtn.textContent = "Saved";
+        showAlert(
+            data.already_saved
+                ? "This trip is already saved on your dashboard."
+                : "Trip saved to your dashboard.",
+            "success"
+        );
+    } catch (error) {
+        showAlert("An unexpected error occurred while saving.", "danger");
+        saveBtn.disabled = false;
     }
 }
 
@@ -195,6 +277,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     document.getElementById("passengerType").addEventListener("change", updateDiscountHint);
+
+    document.getElementById("saveTripBtn").addEventListener("click", saveTrip);
 
     document.getElementById("fareForm").addEventListener("submit", async (event) => {
         event.preventDefault();

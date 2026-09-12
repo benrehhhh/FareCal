@@ -43,6 +43,7 @@
                             <th>Regular Fare</th>
                             <th>Discount</th>
                             <th>Final Fare</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -60,6 +61,12 @@
                                 {% endif %}
                             </td>
                             <td class="fw-bold">{{ calc.final_fare|peso }}</td>
+                            <td class="text-end">
+                                <a href="{{ url_for('index', transport_type_id=calc.transport_type_id,
+                                                    passenger_type_id=calc.passenger_type_id,
+                                                    distance=calc.distance) }}"
+                                   class="btn btn-sm btn-outline-primary">Recalculate</a>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
