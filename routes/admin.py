@@ -16,11 +16,13 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.security import generate_password_hash
 
 from database.connection import get_db
 from utils.decorators import admin_required
 
 from config import MAX_DISTANCE_KM
+from routes.auth import PASSWORD_MIN_LENGTH
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -51,6 +53,59 @@ def _parse_date(value, field_label):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         raise ValueError(f"{field_label} must be a valid date (YYYY-MM-DD).")
+
+
+def _parse_fare_rate_fields(form):
+    """Parse and validate a fare-rate form. Returns (data_dict, error).
+
+    `data_dict` mirrors the fare_rates columns; `error` is None when valid.
+    """
+    transport_id = form.get("transport_type_id", "").strip()
+    fare_method = form.get("fare_method", "")
+
+    error = None
+    try:
+        base_distance = _parse_decimal(form.get("base_distance"), "Base distance")
+        base_fare = _parse_decimal(form.get("base_fare"), "Base fare")
+        succeeding_rate = _parse_decimal(
+            form.get("succeeding_rate"), "Succeeding rate"
+        )
+        per_km_rate = _parse_decimal(form.get("per_km_rate"), "Per-km rate")
+        minimum_fare = _parse_decimal(form.get("minimum_fare"), "Minimum fare")
+        maximum_fare = _parse_decimal(form.get("maximum_fare"), "Maximum fare")
+        effective = _parse_date(form.get("effective_date"), "Effective date")
+        expiration = None
+        exp_raw = (form.get("expiration_date") or "").strip()
+        if exp_raw:
+            expiration = _parse_date(exp_raw, "Expiration date")
+    except ValueError as exc:
+        return None, str(exc)
+
+    if fare_method not in VALID_FARE_METHODS:
+        error = "Please choose a valid fare method."
+    elif fare_method == "base_succeeding" and (
+        base_fare is None or base_distance is None or succeeding_rate is None
+    ):
+        error = "Base fare, base distance, and succeeding rate are required for this method."
+    elif fare_method == "per_km" and per_km_rate is None:
+        error = "The per-km rate is required for this method."
+
+    data = {
+        "transport_type_id": transport_id,
+        "fare_method": fare_method,
+        "base_distance": base_distance,
+        "base_fare": base_fare,
+        "succeeding_rate": succeeding_rate,
+        "per_km_rate": per_km_rate,
+        "minimum_fare": minimum_fare,
+        "maximum_fare": maximum_fare,
+        "rounding_rule": form.get("rounding_rule", "round_up_025"),
+        "effective_date": effective,
+        "expiration_date": expiration,
+        "status": form.get("status", "active"),
+        "source_reference": form.get("source_reference", "").strip(),
+    }
+    return data, error
 
 
 @admin_bp.route("/admin")
@@ -270,56 +325,21 @@ def fare_rates():
         transports = cur.fetchall()
 
     if request.method == "POST":
-        transport_id = request.form.get("transport_type_id", "").strip()
-        fare_method = request.form.get("fare_method", "")
-        submission = {
-            "transport_type_id": transport_id,
-            "fare_method": fare_method,
-            "effective_date": request.form.get("effective_date", "").strip(),
-            "status": request.form.get("status", "active"),
-            "source_reference": request.form.get("source_reference", "").strip(),
-        }
-
-        error = None
-        # Numeric fields (all optional except that each method needs its own pair).
-        try:
-            base_distance = _parse_decimal(request.form.get("base_distance"), "Base distance")
-            base_fare = _parse_decimal(request.form.get("base_fare"), "Base fare")
-            succeeding_rate = _parse_decimal(request.form.get("succeeding_rate"), "Succeeding rate")
-            per_km_rate = _parse_decimal(request.form.get("per_km_rate"), "Per-km rate")
-            minimum_fare = _parse_decimal(request.form.get("minimum_fare"), "Minimum fare")
-            maximum_fare = _parse_decimal(request.form.get("maximum_fare"), "Maximum fare")
-            effective = _parse_date(request.form.get("effective_date"), "Effective date")
-            expiration = None
-            exp_raw = (request.form.get("expiration_date") or "").strip()
-            if exp_raw:
-                expiration = _parse_date(exp_raw, "Expiration date")
-        except ValueError as exc:
-            error = str(exc)
-
-        if error is None:
-            if fare_method not in VALID_FARE_METHODS:
-                error = "Please choose a valid fare method."
-            elif fare_method == "base_succeeding" and (
-                base_fare is None or base_distance is None or succeeding_rate is None
-            ):
-                error = "Base fare, base distance, and succeeding rate are required for this method."
-            elif fare_method == "per_km" and per_km_rate is None:
-                error = "The per-km rate is required for this method."
+        data, error = _parse_fare_rate_fields(request.form)
 
         if error is None:
             try:
+                transport_id = int(data["transport_type_id"])
+            except (ValueError, TypeError):
+                error = "Please choose a valid transport type."
+            else:
                 with db.cursor() as cur:
                     cur.execute(
-                        """
-                        SELECT id FROM transport_types WHERE id = %s
-                        """,
+                        "SELECT id FROM transport_types WHERE id = %s",
                         (transport_id,),
                     )
                     if cur.fetchone() is None:
                         error = "Please choose a valid transport type."
-            except (ValueError, TypeError):
-                error = "Please choose a valid transport type."
 
         if error is None:
             try:
@@ -335,18 +355,18 @@ def fare_rates():
                         """,
                         (
                             transport_id,
-                            fare_method,
-                            base_distance,
-                            base_fare,
-                            succeeding_rate,
-                            per_km_rate,
-                            minimum_fare,
-                            maximum_fare,
-                            request.form.get("rounding_rule", "round_up_025"),
-                            effective,
-                            expiration,
-                            submission["status"],
-                            submission["source_reference"],
+                            data["fare_method"],
+                            data["base_distance"],
+                            data["base_fare"],
+                            data["succeeding_rate"],
+                            data["per_km_rate"],
+                            data["minimum_fare"],
+                            data["maximum_fare"],
+                            data["rounding_rule"],
+                            data["effective_date"],
+                            data["expiration_date"],
+                            data["status"],
+                            data["source_reference"],
                         ),
                     )
                 flash("Fare rate added.", "success")
@@ -671,6 +691,325 @@ def calculations():
         total_pages=total_pages,
         total=total,
         q=q,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Editing
+# ---------------------------------------------------------------------------
+
+@admin_bp.route("/admin/transport-types/<int:tt_id>/edit", methods=["GET", "POST"])
+@admin_required
+def edit_transport_type(tt_id):
+    """Edit a transport type's name/description."""
+    db = get_db()
+
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM transport_types WHERE id = %s", (tt_id,)
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        flash("Transport type not found.", "warning")
+        return redirect(url_for("admin.transport_types"))
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        description = request.form.get("description", "").strip() or None
+
+        if len(name) < 2:
+            flash("Transport type name must be at least 2 characters.", "warning")
+        else:
+            try:
+                with db.cursor() as cur:
+                    cur.execute(
+                        "UPDATE transport_types SET name = %s, description = %s WHERE id = %s",
+                        (name, description, tt_id),
+                    )
+                flash(f"Transport type '{name}' updated.", "success")
+            except pymysql.err.IntegrityError:
+                flash("A transport type with that name already exists.", "warning")
+
+        return redirect(url_for("admin.edit_transport_type", tt_id=tt_id))
+
+    return render_template(
+        "admin/edit_transport_type.html", active="transport_types", row=row
+    )
+
+
+@admin_bp.route("/admin/passenger-types/<int:pt_id>/edit", methods=["GET", "POST"])
+@admin_required
+def edit_passenger_type(pt_id):
+    """Edit a passenger type's name, discount, and description."""
+    db = get_db()
+
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM passenger_types WHERE id = %s", (pt_id,)
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        flash("Passenger type not found.", "warning")
+        return redirect(url_for("admin.passenger_types"))
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        description = request.form.get("description", "").strip() or None
+
+        error = None
+        if len(name) < 2:
+            error = "Passenger type name must be at least 2 characters."
+        else:
+            try:
+                discount = _parse_decimal(
+                    request.form.get("discount_percentage"),
+                    "Discount percentage",
+                )
+                if discount is None:
+                    discount = 0.00
+                if not 0 <= discount <= 100:
+                    error = "Discount percentage must be between 0 and 100."
+            except ValueError as exc:
+                error = str(exc)
+
+        if error is None:
+            try:
+                with db.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE passenger_types
+                        SET name = %s, discount_percentage = %s, description = %s
+                        WHERE id = %s
+                        """,
+                        (name, discount, description, pt_id),
+                    )
+                flash(f"Passenger type '{name}' updated.", "success")
+            except pymysql.err.IntegrityError:
+                flash("A passenger type with that name already exists.", "warning")
+        else:
+            flash(error, "warning")
+
+        return redirect(url_for("admin.edit_passenger_type", pt_id=pt_id))
+
+    return render_template(
+        "admin/edit_passenger_type.html", active="passenger_types", row=row
+    )
+
+
+@admin_bp.route("/admin/fare-rates/<int:fr_id>/edit", methods=["GET", "POST"])
+@admin_required
+def edit_fare_rate(fr_id):
+    """Edit an existing fare rate (all fields)."""
+    db = get_db()
+
+    with db.cursor() as cur:
+        cur.execute("SELECT * FROM fare_rates WHERE id = %s", (fr_id,))
+        row = cur.fetchone()
+        cur.execute(
+            "SELECT id, name FROM transport_types ORDER BY name"
+        )
+        transports = cur.fetchall()
+
+    if row is None:
+        flash("Fare rate not found.", "warning")
+        return redirect(url_for("admin.fare_rates"))
+
+    if request.method == "POST":
+        data, error = _parse_fare_rate_fields(request.form)
+
+        if error is None:
+            try:
+                transport_id = int(data["transport_type_id"])
+            except (ValueError, TypeError):
+                error = "Please choose a valid transport type."
+            else:
+                with db.cursor() as cur:
+                    cur.execute(
+                        "SELECT id FROM transport_types WHERE id = %s",
+                        (transport_id,),
+                    )
+                    if cur.fetchone() is None:
+                        error = "Please choose a valid transport type."
+
+        if error is None:
+            try:
+                with db.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE fare_rates
+                        SET transport_type_id = %s, fare_method = %s,
+                            base_distance = %s, base_fare = %s,
+                            succeeding_rate = %s, per_km_rate = %s,
+                            minimum_fare = %s, maximum_fare = %s,
+                            rounding_rule = %s, effective_date = %s,
+                            expiration_date = %s, status = %s,
+                            source_reference = %s
+                        WHERE id = %s
+                        """,
+                        (
+                            transport_id,
+                            data["fare_method"],
+                            data["base_distance"],
+                            data["base_fare"],
+                            data["succeeding_rate"],
+                            data["per_km_rate"],
+                            data["minimum_fare"],
+                            data["maximum_fare"],
+                            data["rounding_rule"],
+                            data["effective_date"],
+                            data["expiration_date"],
+                            data["status"],
+                            data["source_reference"],
+                            fr_id,
+                        ),
+                    )
+                flash("Fare rate updated.", "success")
+            except pymysql.err.IntegrityError:
+                flash(
+                    "A fare rate for that transport type with the same effective date already exists.",
+                    "warning",
+                )
+            return redirect(url_for("admin.fare_rates"))
+
+        flash(error, "warning")
+
+    return render_template(
+        "admin/edit_fare_rate.html",
+        active="fare_rates",
+        row=row,
+        transports=transports,
+        today=date.today(),
+        rounding_rules=VALID_ROUNDING_RULES,
+    )
+
+
+@admin_bp.route("/admin/routes/<int:route_id>/edit", methods=["GET", "POST"])
+@admin_required
+def edit_route(route_id):
+    """Edit a saved route preset."""
+    db = get_db()
+
+    with db.cursor() as cur:
+        cur.execute("SELECT * FROM routes WHERE id = %s", (route_id,))
+        row = cur.fetchone()
+        cur.execute(
+            "SELECT id, name FROM transport_types ORDER BY name"
+        )
+        transports = cur.fetchall()
+
+    if row is None:
+        flash("Route not found.", "warning")
+        return redirect(url_for("admin.routes"))
+
+    if request.method == "POST":
+        transport_id = request.form.get("transport_type_id", "").strip()
+        origin = request.form.get("origin", "").strip()
+        destination = request.form.get("destination", "").strip()
+
+        error = None
+        try:
+            distance = _parse_decimal(
+                request.form.get("distance_km"), "Distance"
+            )
+        except ValueError as exc:
+            error = str(exc)
+            distance = None
+
+        if error is None:
+            if len(origin) < 2:
+                error = "Origin must be at least 2 characters."
+            elif len(destination) < 2:
+                error = "Destination must be at least 2 characters."
+            elif distance is None or distance <= 0:
+                error = "Distance must be greater than zero."
+            elif distance > MAX_DISTANCE_KM:
+                error = f"Distance cannot exceed {MAX_DISTANCE_KM} km."
+
+        if error is None:
+            try:
+                transport_id = int(transport_id)
+            except (ValueError, TypeError):
+                error = "Please choose a valid transport type."
+            else:
+                with db.cursor() as cur:
+                    cur.execute(
+                        "SELECT id FROM transport_types WHERE id = %s",
+                        (transport_id,),
+                    )
+                    if cur.fetchone() is None:
+                        error = "Please choose a valid transport type."
+
+        if error is None:
+            try:
+                with db.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE routes
+                        SET transport_type_id = %s, origin = %s,
+                            destination = %s, distance_km = %s
+                        WHERE id = %s
+                        """,
+                        (transport_id, origin, destination, distance, route_id),
+                    )
+                flash(f"Route '{origin} → {destination}' updated.", "success")
+            except pymysql.err.IntegrityError:
+                flash(
+                    "A route with that transport, origin, and destination already exists.",
+                    "warning",
+                )
+            return redirect(url_for("admin.routes"))
+
+        flash(error, "warning")
+
+    return render_template(
+        "admin/edit_route.html",
+        active="routes",
+        row=row,
+        transports=transports,
+    )
+
+
+@admin_bp.route("/admin/users/<int:user_id>/reset-password", methods=["GET", "POST"])
+@admin_required
+def reset_password(user_id):
+    """Let an administrator set a new password for a user account."""
+    db = get_db()
+
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id, name, email FROM users WHERE id = %s", (user_id,)
+        )
+        user = cur.fetchone()
+
+    if user is None:
+        flash("User not found.", "warning")
+        return redirect(url_for("admin.users"))
+
+    if request.method == "POST":
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if len(new_password) < PASSWORD_MIN_LENGTH:
+            flash(
+                f"Password must be at least {PASSWORD_MIN_LENGTH} characters long.",
+                "warning",
+            )
+        elif new_password != confirm_password:
+            flash("The passwords do not match.", "warning")
+        else:
+            password_hash = generate_password_hash(new_password)
+            with db.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET password_hash = %s WHERE id = %s",
+                    (password_hash, user_id),
+                )
+            flash(f"Password reset for '{user['name']}'.", "success")
+            return redirect(url_for("admin.users"))
+
+    return render_template(
+        "admin/user_password_reset.html", active="users", user=user
     )
 
 

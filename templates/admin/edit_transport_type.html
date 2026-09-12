@@ -1,0 +1,41 @@
+{% extends "admin/base.html" %}
+
+{% block title %}FareCal Admin — Edit Transport Type{% endblock %}
+
+{% block content %}
+
+{% from "partials/back_button.html" import back_button %}
+{{ back_button(url_for('admin.transport_types'), 'Back to Transport Types') }}
+
+<h1 class="fs-3 fw-bold mb-4">Edit Transport Type</h1>
+
+<div class="card border-0 shadow-sm" style="max-width: 640px;">
+    <div class="card-header bg-white fw-bold">Transport Type Details</div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.edit_transport_type', tt_id=row.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+                <label class="form-label" for="name">Name *</label>
+                <input type="text" class="form-control" id="name" name="name"
+                       required minlength="2" value="{{ row.name }}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="description">Description</label>
+                <input type="text" class="form-control" id="description" name="description"
+                       value="{{ row.description or '' }}">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Status</label>
+                <div>
+                    <span class="badge {{ 'text-bg-success' if row.status == 'active' else 'text-bg-danger' }}">
+                        {{ 'Active' if row.status == 'active' else 'Inactive' }}
+                    </span>
+                    <a href="{{ url_for('admin.transport_types') }}" class="ms-2 small">Toggle it from the list</a>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

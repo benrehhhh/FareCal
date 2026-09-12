@@ -60,6 +60,8 @@
                             </td>
                             <td>{{ t.created_at.strftime('%b %d, %Y') }}</td>
                             <td>
+                                <a href="{{ url_for('admin.edit_transport_type', tt_id=t.id) }}"
+                                   class="btn btn-sm btn-outline-primary">Edit</a>
                                 <form method="POST"
                                       action="{{ url_for('admin.toggle_transport_type', tt_id=t.id) }}"
                                       data-confirm="Set '{{ t.name }}' to {{ 'inactive' if t.status == 'active' else 'active' }}?"

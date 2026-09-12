@@ -73,6 +73,8 @@
                                 {% endif %}
                             </td>
                             <td>
+                                <a href="{{ url_for('admin.edit_route', route_id=r.id) }}"
+                                   class="btn btn-sm btn-outline-primary">Edit</a>
                                 <form method="POST"
                                       action="{{ url_for('admin.toggle_route', route_id=r.id) }}"
                                       data-confirm="Set '{{ r.origin }} → {{ r.destination }}' to {{ 'inactive' if r.status == 'active' else 'active' }}?"

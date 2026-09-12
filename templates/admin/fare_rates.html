@@ -166,6 +166,8 @@
                                 {% endif %}
                             </td>
                             <td>
+                                <a href="{{ url_for('admin.edit_fare_rate', fr_id=r.id) }}"
+                                   class="btn btn-sm btn-outline-primary">Edit</a>
                                 <form method="POST"
                                       action="{{ url_for('admin.toggle_fare_rate', fr_id=r.id) }}"
                                       data-confirm="Set this fare rate to {{ 'inactive' if r.status == 'active' else 'active' }}?"

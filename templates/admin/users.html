@@ -60,6 +60,8 @@
                             <td>{{ u.created_at.strftime('%b %d, %Y') }}</td>
                             <td>
                                 {% if u.id != current_user.id %}
+                                    <a href="{{ url_for('admin.reset_password', user_id=u.id) }}"
+                                       class="btn btn-sm btn-outline-primary">Reset password</a>
                                     <form method="POST"
                                           action="{{ url_for('admin.toggle_user', user_id=u.id) }}"
                                           data-confirm="Change this user's status to {{ 'inactive' if u.status == 'active' else 'active' }}?"

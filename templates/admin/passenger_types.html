@@ -66,6 +66,8 @@
                                 {% endif %}
                             </td>
                             <td>
+                                <a href="{{ url_for('admin.edit_passenger_type', pt_id=p.id) }}"
+                                   class="btn btn-sm btn-outline-primary">Edit</a>
                                 <form method="POST"
                                       action="{{ url_for('admin.toggle_passenger_type', pt_id=p.id) }}"
                                       data-confirm="Set '{{ p.name }}' to {{ 'inactive' if p.status == 'active' else 'active' }}?"
