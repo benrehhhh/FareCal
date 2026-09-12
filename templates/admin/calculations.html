@@ -8,7 +8,20 @@
 {{ back_button(url_for('admin.dashboard'), 'Back to Admin Dashboard') }}
 
 <h1 class="fs-3 fw-bold mb-1">Calculations</h1>
-<p class="text-muted mb-4">Every saved fare estimate across all users, newest first.</p>
+<p class="text-muted mb-3">Every saved fare estimate across all users, newest first.</p>
+
+<form method="GET" action="{{ url_for('admin.calculations') }}" class="row g-2 mb-4">
+    <div class="col-md-5 col-lg-4">
+        <input type="text" name="q" class="form-control"
+               placeholder="Search transport, passenger, or user" value="{{ q }}">
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if q %}
+            <a href="{{ url_for('admin.calculations') }}" class="btn btn-outline-secondary">Clear</a>
+        {% endif %}
+    </div>
+</form>
 
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
@@ -72,7 +85,7 @@
         <ul class="pagination pagination-sm mb-0">
             {% if page > 1 %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('admin.calculations', page=page-1) }}">Previous</a>
+                    <a class="page-link" href="{{ url_for('admin.calculations', page=page-1, q=q) }}">Previous</a>
                 </li>
             {% else %}
                 <li class="page-item disabled">
@@ -82,7 +95,7 @@
 
             {% if page < total_pages %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('admin.calculations', page=page+1) }}">Next</a>
+                    <a class="page-link" href="{{ url_for('admin.calculations', page=page+1, q=q) }}">Next</a>
                 </li>
             {% else %}
                 <li class="page-item disabled">

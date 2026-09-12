@@ -1,7 +1,11 @@
 """Authenticated user routes: dashboard, history, and account settings."""
 
+import csv
+import io
+
 from flask import (
     Blueprint,
+    Response,
     flash,
     jsonify,
     redirect,
@@ -22,10 +26,11 @@ HISTORY_PER_PAGE = 20
 PASSWORD_MIN_LENGTH = 8
 
 
-def get_user_history(user_id, limit=None, offset=None):
+def get_user_history(user_id, limit=None, offset=None, q=None):
     """Return a user's calculations, newest first, with transport/passenger names.
 
     `limit`/`offset` are optional to support pagination and the recent list.
+    `q` filters by transport name or passenger type name (substring match).
     """
     db = get_db()
     query = """
@@ -36,9 +41,15 @@ def get_user_history(user_id, limit=None, offset=None):
         JOIN transport_types tt ON tt.id = fc.transport_type_id
         JOIN passenger_types pt ON pt.id = fc.passenger_type_id
         WHERE fc.user_id = %s
-        ORDER BY fc.calculated_at DESC, fc.id DESC
     """
     params = [user_id]
+
+    if q:
+        query += " AND (tt.name LIKE %s OR pt.name LIKE %s)"
+        like = f"%{q}%"
+        params += [like, like]
+
+    query += " ORDER BY fc.calculated_at DESC, fc.id DESC"
 
     if limit is not None:
         query += " LIMIT %s"
@@ -52,14 +63,25 @@ def get_user_history(user_id, limit=None, offset=None):
         return cur.fetchall()
 
 
-def count_user_calculations(user_id):
-    """Return the total number of calculations a user has made."""
+def count_user_calculations(user_id, q=None):
+    """Return how many calculations a user has (optionally filtered by `q`)."""
     db = get_db()
+    query = """
+        SELECT COUNT(*) AS total
+        FROM fare_calculations fc
+        JOIN transport_types tt ON tt.id = fc.transport_type_id
+        JOIN passenger_types pt ON pt.id = fc.passenger_type_id
+        WHERE fc.user_id = %s
+    """
+    params = [user_id]
+
+    if q:
+        query += " AND (tt.name LIKE %s OR pt.name LIKE %s)"
+        like = f"%{q}%"
+        params += [like, like]
+
     with db.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) AS total FROM fare_calculations WHERE user_id = %s",
-            (user_id,),
-        )
+        cur.execute(query, params)
         return cur.fetchone()["total"]
 
 
@@ -80,9 +102,10 @@ def dashboard():
 @user_bp.route("/history")
 @login_required
 def history():
-    """Paginated calculation history."""
+    """Paginated calculation history, searchable by transport/passenger name."""
     user_id = session["user_id"]
-    total = count_user_calculations(user_id)
+    q = request.args.get("q", "").strip()
+    total = count_user_calculations(user_id, q=q)
 
     per_page = HISTORY_PER_PAGE
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -94,13 +117,56 @@ def history():
         page = 1
     page = max(1, min(page, total_pages))
 
-    rows = get_user_history(user_id, limit=per_page, offset=(page - 1) * per_page)
+    rows = get_user_history(user_id, limit=per_page, offset=(page - 1) * per_page, q=q)
     return render_template(
         "history.html",
         rows=rows,
         page=page,
         total_pages=total_pages,
         total=total,
+        q=q,
+    )
+
+
+@user_bp.route("/history/export")
+@login_required
+def export_history():
+    """Download the user's calculations as a CSV file (honors the `q` filter)."""
+    q = request.args.get("q", "").strip()
+    rows = get_user_history(session["user_id"], q=q)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "Date",
+            "Transport",
+            "Distance (km)",
+            "Passenger Type",
+            "Regular Fare (PHP)",
+            "Discount (%)",
+            "Discount (PHP)",
+            "Final Fare (PHP)",
+        ]
+    )
+    for r in rows:
+        writer.writerow(
+            [
+                r["calculated_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                r["transport_name"],
+                f'{float(r["distance"]):.2f}',
+                r["passenger_name"],
+                f'{float(r["regular_fare"]):.2f}',
+                f'{float(r["discount_percentage"]):.2f}',
+                f'{float(r["discount_amount"]):.2f}',
+                f'{float(r["final_fare"]):.2f}',
+            ]
+        )
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=farecal_history.csv"},
     )
 
 

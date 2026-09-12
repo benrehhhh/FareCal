@@ -8,7 +8,26 @@
 {{ back_button(url_for('user.dashboard'), 'Back to Dashboard') }}
 
 <h1 class="fs-3 fw-bold mb-1">Calculation History</h1>
-<p class="text-muted mb-4">Your saved fare estimates, newest first.</p>
+<p class="text-muted mb-3">Your saved fare estimates, newest first.</p>
+
+<div class="row g-2 mb-4 align-items-end">
+    <div class="col-md-5 col-lg-4">
+        <form method="GET" action="{{ url_for('user.history') }}" class="row g-2">
+            <div class="col-8">
+                <input type="text" name="q" id="historySearch" class="form-control"
+                       placeholder="Search transport or passenger" value="{{ q }}">
+            </div>
+            <div class="col-4">
+                <button type="submit" class="btn btn-primary w-100">Search</button>
+            </div>
+        </form>
+    </div>
+    <div class="col-md-auto ms-auto">
+        <a href="{{ url_for('user.export_history', q=q) }}" class="btn btn-outline-secondary">
+            Export CSV
+        </a>
+    </div>
+</div>
 
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
@@ -62,7 +81,7 @@
         <ul class="pagination pagination-sm mb-0">
             {% if page > 1 %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('user.history', page=page-1) }}">Previous</a>
+                    <a class="page-link" href="{{ url_for('user.history', page=page-1, q=q) }}">Previous</a>
                 </li>
             {% else %}
                 <li class="page-item disabled">
@@ -72,7 +91,7 @@
 
             {% if page < total_pages %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('user.history', page=page+1) }}">Next</a>
+                    <a class="page-link" href="{{ url_for('user.history', page=page+1, q=q) }}">Next</a>
                 </li>
             {% else %}
                 <li class="page-item disabled">

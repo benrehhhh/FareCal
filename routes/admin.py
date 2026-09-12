@@ -465,9 +465,27 @@ def toggle_passenger_type(pt_id):
 def calculations():
     """Paginated view of every saved calculation (rows can be deleted)."""
     db = get_db()
+    q = request.args.get("q", "").strip()
+
+    filter_sql = ""
+    params = []
+    if q:
+        like = f"%{q}%"
+        filter_sql = (
+            " WHERE (tt.name LIKE %s OR pt.name LIKE %s"
+            " OR COALESCE(u.name, 'Guest') LIKE %s)"
+        )
+        params = [like, like, like]
+
+    base_from = """
+        FROM fare_calculations fc
+        JOIN transport_types tt ON tt.id = fc.transport_type_id
+        JOIN passenger_types pt ON pt.id = fc.passenger_type_id
+        LEFT JOIN users u ON u.id = fc.user_id
+    """
 
     with db.cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS total FROM fare_calculations")
+        cur.execute(f"SELECT COUNT(*) AS total {base_from}{filter_sql}", params)
         total = cur.fetchone()["total"]
 
     total_pages = max(1, (total + CALCULATIONS_PER_PAGE - 1) // CALCULATIONS_PER_PAGE)
@@ -480,19 +498,17 @@ def calculations():
 
     with db.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT fc.id, fc.distance, fc.regular_fare, fc.discount_percentage,
                    fc.discount_amount, fc.final_fare, fc.calculated_at,
                    tt.name AS transport_name, pt.name AS passenger_name,
                    COALESCE(u.name, 'Guest') AS user_name
-            FROM fare_calculations fc
-            JOIN transport_types tt ON tt.id = fc.transport_type_id
-            JOIN passenger_types pt ON pt.id = fc.passenger_type_id
-            LEFT JOIN users u ON u.id = fc.user_id
+            {base_from}
+            {filter_sql}
             ORDER BY fc.calculated_at DESC, fc.id DESC
             LIMIT %s OFFSET %s
             """,
-            (CALCULATIONS_PER_PAGE, (page - 1) * CALCULATIONS_PER_PAGE),
+            params + [CALCULATIONS_PER_PAGE, (page - 1) * CALCULATIONS_PER_PAGE],
         )
         rows = cur.fetchall()
 
@@ -503,6 +519,7 @@ def calculations():
         page=page,
         total_pages=total_pages,
         total=total,
+        q=q,
     )
 
 
