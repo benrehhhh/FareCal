@@ -1,6 +1,16 @@
-"""Authenticated user routes: dashboard and calculation history."""
+"""Authenticated user routes: dashboard, history, and account settings."""
 
-from flask import Blueprint, jsonify, render_template, request, session
+from flask import (
+    Blueprint,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.connection import get_db
 from utils.decorators import login_required
@@ -8,6 +18,8 @@ from utils.decorators import login_required
 user_bp = Blueprint("user", __name__)
 
 HISTORY_PER_PAGE = 20
+
+PASSWORD_MIN_LENGTH = 8
 
 
 def get_user_history(user_id, limit=None, offset=None):
@@ -100,3 +112,104 @@ def api_history():
 
     rows = get_user_history(session["user_id"], limit=50)
     return jsonify({"success": True, "result": rows})
+
+
+@user_bp.route("/account")
+@login_required
+def account_page():
+    """Account settings: profile overview, change password, delete account."""
+    user_id = session["user_id"]
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id, name, email, role, status, created_at FROM users WHERE id = %s",
+            (user_id,),
+        )
+        account = cur.fetchone()
+
+    if account is None:
+        # The account no longer exists (deleted from admin) — end the session.
+        session.clear()
+        return redirect(url_for("index"))
+
+    return render_template("account.html", account=account)
+
+
+@user_bp.route("/account/change-password", methods=["POST"])
+@login_required
+def change_password():
+    """Verify the current password, then replace it with the new one."""
+    current = request.form.get("current_password", "")
+    new = request.form.get("new_password", "")
+    confirm = request.form.get("confirm_password", "")
+
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT password_hash FROM users WHERE id = %s",
+            (session["user_id"],),
+        )
+        record = cur.fetchone()
+
+    error = None
+    if record is None:
+        error = "Account not found."
+    elif not check_password_hash(record["password_hash"], current):
+        error = "Your current password is incorrect."
+    elif len(new) < PASSWORD_MIN_LENGTH:
+        error = (
+            f"The new password must be at least {PASSWORD_MIN_LENGTH} characters long."
+        )
+    elif new != confirm:
+        error = "The new passwords do not match."
+
+    if error:
+        flash(error, "warning")
+        return redirect(url_for("user.account_page"))
+
+    new_hash = generate_password_hash(new)
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE users SET password_hash = %s WHERE id = %s",
+            (new_hash, session["user_id"]),
+        )
+
+    flash("Your password has been updated.", "success")
+    return redirect(url_for("user.account_page"))
+
+
+@user_bp.route("/account/delete", methods=["POST"])
+@login_required
+def delete_account():
+    """Delete the logged-in account; saved history is kept as 'Guest'."""
+    user_id = session["user_id"]
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute("SELECT role FROM users WHERE id = %s", (user_id,))
+        record = cur.fetchone()
+
+        if record is None:
+            session.clear()
+            return redirect(url_for("index"))
+
+        # Never let the last active administrator delete the final account.
+        if record["role"] == "admin":
+            cur.execute(
+                """
+                SELECT COUNT(*) AS c FROM users
+                WHERE id <> %s AND role = 'admin' AND status = 'active'
+                """,
+                (user_id,),
+            )
+            if cur.fetchone()["c"] == 0:
+                flash(
+                    "You cannot delete the only remaining active administrator account.",
+                    "warning",
+                )
+                return redirect(url_for("user.account_page"))
+
+        cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+    session.clear()
+    flash("Your account has been deleted. We are sorry to see you go!", "info")
+    return redirect(url_for("index"))

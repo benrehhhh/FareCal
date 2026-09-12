@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}FareCal — Account{% endblock %}
+
+{% block content %}
+
+{% from "partials/back_button.html" import back_button %}
+{{ back_button(url_for('user.dashboard'), 'Back to Dashboard') }}
+
+<h1 class="fs-3 fw-bold mb-1">Account Settings</h1>
+<p class="text-muted mb-4">Manage your profile and password.</p>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white fw-bold">Profile</div>
+            <div class="card-body">
+                <dl class="mb-0">
+                    <dt class="small text-muted">Name</dt>
+                    <dd class="mb-3">{{ account.name }}</dd>
+                    <dt class="small text-muted">Email</dt>
+                    <dd class="mb-3">{{ account.email }}</dd>
+                    <dt class="small text-muted">Role</dt>
+                    <dd class="mb-3">
+                        {% if account.role == 'admin' %}
+                            <span class="badge text-bg-warning">Admin</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">User</span>
+                        {% endif %}
+                    </dd>
+                    <dt class="small text-muted">Member since</dt>
+                    <dd class="mb-0">{{ account.created_at.strftime('%b %d, %Y') }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-header bg-white fw-bold">Change Password</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('user.change_password') }}" class="row g-3">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-12">
+                        <label class="form-label" for="current_password">Current Password</label>
+                        <input type="password" class="form-control" id="current_password"
+                               name="current_password" required autocomplete="current-password">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="new_password">New Password</label>
+                        <input type="password" class="form-control" id="new_password"
+                               name="new_password" required minlength="8" autocomplete="new-password">
+                        <div class="form-text">At least 8 characters.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="confirm_password">Confirm New Password</label>
+                        <input type="password" class="form-control" id="confirm_password"
+                               name="confirm_password" required minlength="8" autocomplete="new-password">
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">Update Password</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card border-danger border-1 shadow-sm">
+            <div class="card-header bg-white fw-bold text-danger">Danger Zone</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Deleting your account permanently removes your registration. Your saved
+                    calculations are kept but will be shown as "Guest".
+                </p>
+                <form method="POST" action="{{ url_for('user.delete_account') }}"
+                      data-confirm="This will permanently delete your account. Continue?">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline-danger">Delete My Account</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
