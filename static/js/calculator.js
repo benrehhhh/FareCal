@@ -66,7 +66,6 @@ function showResult(calc) {
         saveBtn.textContent = "Save this trip";
         saveBtn.disabled = false;
     }
-}
 
     // Notes: minimum / maximum fare applied.
     const notes = [];
