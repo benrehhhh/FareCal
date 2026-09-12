@@ -63,6 +63,10 @@
                         <a class="nav-link {{ 'active' if active == 'calculations' else '' }}"
                            href="{{ url_for('admin.calculations') }}">Calculations</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {{ 'active' if active == 'audit' else '' }}"
+                           href="{{ url_for('admin.audit') }}">Audit Log</a>
+                    </li>
                 </ul>
             </div>
 

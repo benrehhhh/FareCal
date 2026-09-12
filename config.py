@@ -28,5 +28,11 @@ class Config:
     # Fare calculator limits
     MAX_DISTANCE_KM = int(os.getenv("MAX_DISTANCE_KM", "500"))
 
+    # Account security / login throttling
+    MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
+    LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "900"))
+
 
 MAX_DISTANCE_KM = Config.MAX_DISTANCE_KM
+MAX_LOGIN_ATTEMPTS = Config.MAX_LOGIN_ATTEMPTS
+LOGIN_LOCKOUT_SECONDS = Config.LOGIN_LOCKOUT_SECONDS

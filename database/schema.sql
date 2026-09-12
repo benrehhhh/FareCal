@@ -27,6 +27,42 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE = InnoDB;
 
 -- -------------------------------------------------------------------
+-- login_attempts  (powers login throttling)
+-- Failed attempts are counted per email + IP within a rolling window.
+-- A successful login clears the recorded failures for that key.
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    email        VARCHAR(150) NOT NULL,
+    ip_address   VARCHAR(45)  NOT NULL DEFAULT '',
+    success      TINYINT(1)   NOT NULL DEFAULT 0,
+    attempted_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_login_attempts_email_ip_time (email, ip_address, attempted_at)
+) ENGINE = InnoDB;
+
+-- -------------------------------------------------------------------
+-- audit_log  (significant security/admin events, e.g. account actions)
+-- user_id is the actor (NULL when the action happened without a session)
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit_log (
+    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id     INT UNSIGNED NULL,
+    action      VARCHAR(60)  NOT NULL,
+    target_type VARCHAR(40)  NULL,
+    target_id   VARCHAR(40)  NULL,
+    details     VARCHAR(255) NULL,
+    ip_address  VARCHAR(45)  NOT NULL DEFAULT '',
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_audit_log_created (created_at),
+    KEY idx_audit_log_user (user_id),
+    CONSTRAINT fk_audit_log_user
+        FOREIGN KEY (user_id) REFERENCES users (id)
+        ON DELETE SET NULL
+) ENGINE = InnoDB;
+
+-- -------------------------------------------------------------------
 -- transport_types
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transport_types (

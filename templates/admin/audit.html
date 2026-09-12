@@ -1,0 +1,97 @@
+{% extends "admin/base.html" %}
+
+{% block title %}FareCal Admin — Audit Log{% endblock %}
+
+{% block content %}
+
+<h1 class="fs-3 fw-bold mb-1">Audit Log</h1>
+<p class="text-muted mb-3">Significant security and administration events, newest first.</p>
+
+<div class="row g-2 mb-4 align-items-end">
+    <div class="col-md-5 col-lg-4">
+        <form method="GET" action="{{ url_for('admin.audit') }}" class="row g-2">
+            <div class="col-8">
+                <input type="text" name="q" class="form-control"
+                       placeholder="Search action, details, target, actor, IP" value="{{ q }}">
+            </div>
+            <div class="col-4">
+                <button type="submit" class="btn btn-primary w-100">Search</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if rows %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Actor</th>
+                            <th>Action</th>
+                            <th>Target</th>
+                            <th>Details</th>
+                            <th>IP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in rows %}
+                        <tr>
+                            <td>{{ entry.created_at.strftime('%b %d, %Y %I:%M %p') }}</td>
+                            <td>{{ entry.actor_email }}</td>
+                            <td><code>{{ entry.action }}</code></td>
+                            <td>
+                                {% if entry.target_type %}
+                                    {{ entry.target_type }}
+                                    {% if entry.target_id %}#{{ entry.target_id }}{% endif %}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>{{ entry.details or '—' }}</td>
+                            <td>{{ entry.ip_address or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center text-muted py-5">
+                <p class="mb-0">No audit events{% if q %} matching "{{ q }}"{% endif %}.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if rows %}
+<div class="d-flex justify-content-between align-items-center mt-3 small text-muted">
+    <span>Page {{ page }} of {{ total_pages }} · {{ total }} events total</span>
+    <nav aria-label="Audit pages">
+        <ul class="pagination pagination-sm mb-0">
+            {% if page > 1 %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('admin.audit', page=page-1, q=q) }}">Previous</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">Previous</span>
+                </li>
+            {% endif %}
+
+            {% if page < total_pages %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('admin.audit', page=page+1, q=q) }}">Next</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">Next</span>
+                </li>
+            {% endif %}
+        </ul>
+    </nav>
+</div>
+{% endif %}
+
+{% endblock %}

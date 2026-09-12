@@ -19,6 +19,7 @@ from flask import (
 from werkzeug.security import generate_password_hash
 
 from database.connection import get_db
+from utils.audit import log_audit
 from utils.decorators import admin_required
 
 from config import MAX_DISTANCE_KM
@@ -244,6 +245,13 @@ def toggle_user(user_id):
         )
 
     flash(f"User status updated to '{new_status}'.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.toggle_user",
+        target_type="user",
+        target_id=str(user_id),
+        details=f"status -> {new_status}",
+    )
     return redirect(url_for("admin.users"))
 
 
@@ -268,6 +276,12 @@ def transport_types():
                     (name, description),
                 )
             flash(f"Transport type '{name}' added.", "success")
+            log_audit(
+                session["user_id"],
+                "admin.add_transport_type",
+                target_type="transport_type",
+                details=name,
+            )
         except pymysql.err.IntegrityError:
             flash("A transport type with that name already exists.", "warning")
 
@@ -309,6 +323,13 @@ def toggle_transport_type(tt_id):
         )
 
     flash(f"Transport type '{row['name']}' is now {new_status}.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.toggle_transport_type",
+        target_type="transport_type",
+        target_id=str(tt_id),
+        details=f"{row['name']} -> {new_status}",
+    )
     return redirect(url_for("admin.transport_types"))
 
 
@@ -370,6 +391,12 @@ def fare_rates():
                         ),
                     )
                 flash("Fare rate added.", "success")
+                log_audit(
+                    session["user_id"],
+                    "admin.add_fare_rate",
+                    target_type="fare_rate",
+                    details=f"transport {transport_id}, effective {data['effective_date']}",
+                )
             except pymysql.err.IntegrityError:
                 flash(
                     "A fare rate for that transport type with the same effective date already exists.",
@@ -421,6 +448,13 @@ def toggle_fare_rate(fr_id):
         )
 
     flash(f"Fare rate is now {new_status}.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.toggle_fare_rate",
+        target_type="fare_rate",
+        target_id=str(fr_id),
+        details=f"{new_status}",
+    )
     return redirect(url_for("admin.fare_rates"))
 
 
@@ -462,6 +496,12 @@ def passenger_types():
                         (name, discount, description),
                     )
                 flash(f"Passenger type '{name}' added.", "success")
+                log_audit(
+                    session["user_id"],
+                    "admin.add_passenger_type",
+                    target_type="passenger_type",
+                    details=name,
+                )
             except pymysql.err.IntegrityError:
                 flash("A passenger type with that name already exists.", "warning")
             return redirect(url_for("admin.passenger_types"))
@@ -504,6 +544,13 @@ def toggle_passenger_type(pt_id):
         )
 
     flash(f"Passenger type '{row['name']}' is now {new_status}.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.toggle_passenger_type",
+        target_type="passenger_type",
+        target_id=str(pt_id),
+        details=f"{row['name']} -> {new_status}",
+    )
     return redirect(url_for("admin.passenger_types"))
 
 
@@ -566,6 +613,12 @@ def routes():
 
         if error is None:
             flash(f"Route '{origin} → {destination}' added.", "success")
+            log_audit(
+                session["user_id"],
+                "admin.add_route",
+                target_type="route",
+                details=f"{origin} -> {destination}",
+            )
         else:
             flash(error, "warning")
         return redirect(url_for("admin.routes"))
@@ -609,6 +662,13 @@ def toggle_route(route_id):
         )
 
     flash(f"Route is now {new_status}.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.toggle_route",
+        target_type="route",
+        target_id=str(route_id),
+        details=f"{new_status}",
+    )
     return redirect(url_for("admin.routes"))
 
 
@@ -628,6 +688,13 @@ def delete_route(route_id):
         cur.execute("DELETE FROM routes WHERE id = %s", (route_id,))
 
     flash(f"Route '{row['origin']} → {row['destination']}' deleted.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.delete_route",
+        target_type="route",
+        target_id=str(route_id),
+        details=f"{row['origin']} -> {row['destination']}",
+    )
     return redirect(url_for("admin.routes"))
 
 
@@ -694,6 +761,74 @@ def calculations():
     )
 
 
+AUDIT_PER_PAGE = 25
+
+
+@admin_bp.route("/admin/audit")
+@admin_required
+def audit():
+    """Paginated, searchable view of the audit log."""
+    q = request.args.get("q", "").strip()
+    db = get_db()
+
+    filter_sql = ""
+    params = []
+    if q:
+        like = f"%{q}%"
+        filter_sql = (
+            " WHERE (al.action LIKE %s OR al.details LIKE %s"
+            " OR al.target_type LIKE %s OR COALESCE(u.email, '-') LIKE %s"
+            " OR al.ip_address LIKE %s)"
+        )
+        params = [like, like, like, like, like]
+
+    with db.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM audit_log al
+            LEFT JOIN users u ON u.id = al.user_id
+            {filter_sql}
+            """,
+            params,
+        )
+        total = cur.fetchone()["total"]
+
+    total_pages = max(1, (total + AUDIT_PER_PAGE - 1) // AUDIT_PER_PAGE)
+
+    try:
+        page = int(request.args.get("page", 1))
+    except (TypeError, ValueError):
+        page = 1
+    page = max(1, min(page, total_pages))
+
+    with db.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT al.id, al.action, al.target_type, al.target_id,
+                   al.details, al.ip_address, al.created_at,
+                   COALESCE(u.email, '-') AS actor_email
+            FROM audit_log al
+            LEFT JOIN users u ON u.id = al.user_id
+            {filter_sql}
+            ORDER BY al.created_at DESC, al.id DESC
+            LIMIT %s OFFSET %s
+            """,
+            params + [AUDIT_PER_PAGE, (page - 1) * AUDIT_PER_PAGE],
+        )
+        rows = cur.fetchall()
+
+    return render_template(
+        "admin/audit.html",
+        active="audit",
+        rows=rows,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        q=q,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Editing
 # ---------------------------------------------------------------------------
@@ -728,6 +863,13 @@ def edit_transport_type(tt_id):
                         (name, description, tt_id),
                     )
                 flash(f"Transport type '{name}' updated.", "success")
+                log_audit(
+                    session["user_id"],
+                    "admin.edit_transport_type",
+                    target_type="transport_type",
+                    target_id=str(tt_id),
+                    details=name,
+                )
             except pymysql.err.IntegrityError:
                 flash("A transport type with that name already exists.", "warning")
 
@@ -786,6 +928,13 @@ def edit_passenger_type(pt_id):
                         (name, discount, description, pt_id),
                     )
                 flash(f"Passenger type '{name}' updated.", "success")
+                log_audit(
+                    session["user_id"],
+                    "admin.edit_passenger_type",
+                    target_type="passenger_type",
+                    target_id=str(pt_id),
+                    details=name,
+                )
             except pymysql.err.IntegrityError:
                 flash("A passenger type with that name already exists.", "warning")
         else:
@@ -866,6 +1015,13 @@ def edit_fare_rate(fr_id):
                         ),
                     )
                 flash("Fare rate updated.", "success")
+                log_audit(
+                    session["user_id"],
+                    "admin.edit_fare_rate",
+                    target_type="fare_rate",
+                    target_id=str(fr_id),
+                    details=f"transport {transport_id}, effective {data['effective_date']}",
+                )
             except pymysql.err.IntegrityError:
                 flash(
                     "A fare rate for that transport type with the same effective date already exists.",
@@ -954,6 +1110,13 @@ def edit_route(route_id):
                         (transport_id, origin, destination, distance, route_id),
                     )
                 flash(f"Route '{origin} → {destination}' updated.", "success")
+                log_audit(
+                    session["user_id"],
+                    "admin.edit_route",
+                    target_type="route",
+                    target_id=str(route_id),
+                    details=f"{origin} -> {destination}",
+                )
             except pymysql.err.IntegrityError:
                 flash(
                     "A route with that transport, origin, and destination already exists.",
@@ -1006,6 +1169,13 @@ def reset_password(user_id):
                     (password_hash, user_id),
                 )
             flash(f"Password reset for '{user['name']}'.", "success")
+            log_audit(
+                session["user_id"],
+                "admin.reset_password",
+                target_type="user",
+                target_id=str(user_id),
+                details=user["email"],
+            )
             return redirect(url_for("admin.users"))
 
     return render_template(
@@ -1053,6 +1223,13 @@ def delete_user(user_id):
         cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
 
     flash(f"User account '{row['name']}' deleted.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.delete_user",
+        target_type="user",
+        target_id=str(user_id),
+        details=row["name"],
+    )
     return redirect(url_for("admin.users"))
 
 
@@ -1086,6 +1263,13 @@ def delete_transport_type(tt_id):
         cur.execute("DELETE FROM transport_types WHERE id = %s", (tt_id,))
 
     flash(f"Transport type '{row['name']}' deleted.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.delete_transport_type",
+        target_type="transport_type",
+        target_id=str(tt_id),
+        details=row["name"],
+    )
     return redirect(url_for("admin.transport_types"))
 
 
@@ -1102,6 +1286,12 @@ def delete_fare_rate(fr_id):
         cur.execute("DELETE FROM fare_rates WHERE id = %s", (fr_id,))
 
     flash("Fare rate deleted.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.delete_fare_rate",
+        target_type="fare_rate",
+        target_id=str(fr_id),
+    )
     return redirect(url_for("admin.fare_rates"))
 
 
@@ -1135,6 +1325,13 @@ def delete_passenger_type(pt_id):
         cur.execute("DELETE FROM passenger_types WHERE id = %s", (pt_id,))
 
     flash(f"Passenger type '{row['name']}' deleted.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.delete_passenger_type",
+        target_type="passenger_type",
+        target_id=str(pt_id),
+        details=row["name"],
+    )
     return redirect(url_for("admin.passenger_types"))
 
 
@@ -1158,4 +1355,10 @@ def delete_calculation(calc_id):
         cur.execute("DELETE FROM fare_calculations WHERE id = %s", (calc_id,))
 
     flash("Calculation deleted.", "success")
+    log_audit(
+        session["user_id"],
+        "admin.delete_calculation",
+        target_type="calculation",
+        target_id=str(calc_id),
+    )
     return redirect(url_for("admin.calculations", page=page))

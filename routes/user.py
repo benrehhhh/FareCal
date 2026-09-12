@@ -24,6 +24,7 @@ from services.fare_calculator import (
     calculate_regular_fare,
     validate_distance,
 )
+from utils.audit import log_audit
 from utils.decorators import login_required
 
 user_bp = Blueprint("user", __name__)
@@ -444,6 +445,7 @@ def change_password():
             (new_hash, session["user_id"]),
         )
 
+    log_audit(session["user_id"], "user.change_password", target_type="user")
     flash("Your password has been updated.", "success")
     return redirect(url_for("user.account_page"))
 
@@ -478,6 +480,7 @@ def delete_account():
                 )
                 return redirect(url_for("user.account_page"))
 
+        log_audit(user_id, "user.delete_account", target_type="user", target_id=str(user_id))
         cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
 
     session.clear()
