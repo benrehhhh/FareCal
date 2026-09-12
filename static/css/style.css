@@ -1,0 +1,95 @@
+/* =========================================================
+   FareCal — global styles
+   Clean, government-service-inspired look: light background,
+   dark text, one accent color, subtle borders, no gradients.
+   ========================================================= */
+
+:root {
+    --fc-accent: #1a5fb4;      /* deep government blue */
+    --fc-accent-dark: #144d94;
+    --fc-border: #dee2e6;
+    --fc-bg-soft: #f7f9fc;
+}
+
+body {
+    background-color: #ffffff;
+    color: #212529;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* Header / navbar */
+.app-header {
+    background-color: var(--fc-accent);
+    border-bottom: 3px solid #f2b705;   /* thin accent line */
+}
+
+.app-header .navbar-brand {
+    letter-spacing: 0.3px;
+}
+
+.brand-mark {
+    display: inline-block;
+    width: 1.9rem;
+    height: 1.9rem;
+    line-height: 1.9rem;
+    text-align: center;
+    background-color: #f2b705;
+    color: var(--fc-accent-dark);
+    border-radius: 0.4rem;
+    font-weight: 700;
+    margin-right: 0.25rem;
+}
+
+.app-header .nav-link {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.app-header .nav-link:hover {
+    color: #ffffff;
+    text-decoration: underline;
+}
+
+/* Footer */
+.app-footer {
+    background-color: var(--fc-bg-soft);
+    border-top: 1px solid var(--fc-border);
+}
+
+/* Cards */
+.card {
+    border: 1px solid var(--fc-border);
+    border-radius: 0.5rem;
+}
+
+.card-header {
+    border-bottom: 1px solid var(--fc-border);
+}
+
+/* Buttons — one accent color throughout */
+.btn-primary {
+    background-color: var(--fc-accent);
+    border-color: var(--fc-accent);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+    background-color: var(--fc-accent-dark);
+    border-color: var(--fc-accent-dark);
+}
+
+a {
+    color: var(--fc-accent);
+}
+
+a:hover {
+    color: var(--fc-accent-dark);
+}
+
+/* Small niceties for readability */
+.form-label {
+    font-weight: 600;
+}
+
+.table > :not(caption) > * > * {
+    vertical-align: middle;
+}
