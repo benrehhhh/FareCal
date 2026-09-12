@@ -46,6 +46,10 @@ class RouteTestCase(unittest.TestCase):
             )
             cur.execute("DELETE FROM transport_types WHERE name LIKE 'IT TEST %%'")
             cur.execute("DELETE FROM passenger_types WHERE name LIKE 'IT PASS %%'")
+            cur.execute(
+                "DELETE FROM routes WHERE origin LIKE 'IT TEST %%' "
+                "OR destination LIKE 'IT TEST %%'"
+            )
         conn.close()
 
     def _csrf(self, page):
@@ -373,6 +377,121 @@ class RouteTestCase(unittest.TestCase):
             with conn.cursor() as cur:
                 cur.execute("SELECT id FROM users WHERE email = %s", (ADMIN_EMAIL,))
                 self.assertIsNotNone(cur.fetchone())
+        finally:
+            conn.close()
+
+    # ------------------------------------------------- public pages
+    def test_fares_page_renders(self):
+        response = self.client.get("/fares")
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        for name in ("Traditional PUJ", "Modernized PUJ", "Bus", "Taxi"):
+            self.assertIn(name, body)
+        self.assertIn("LTFRB", body)
+
+    def test_api_routes_endpoint(self):
+        data = self.client.get("/api/routes").get_json()
+        self.assertTrue(data["success"])
+        self.assertGreater(len(data["result"]), 0)
+
+        tt_id = data["result"][0]["transport_type_id"]
+        filtered = self.client.get(f"/api/routes?transport_id={tt_id}").get_json()
+        self.assertTrue(filtered["success"])
+        self.assertTrue(
+            all(r["transport_type_id"] == tt_id for r in filtered["result"])
+        )
+
+        self.assertEqual(self.client.get("/api/routes?transport_id=abc").status_code, 400)
+
+    # ------------------------------------------------------ account
+    def test_account_page_renders(self):
+        self._login_as_temp_user()
+        body = self.client.get("/account").get_data(as_text=True)
+        self.assertEqual(self.client.get("/account").status_code, 200)
+        self.assertIn("Change Password", body)
+
+    # ------------------------------------------------- history/export
+    def test_history_search_and_export(self):
+        self._login_as_temp_user()
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM users WHERE email = %s", (TEMP_USER,))
+                uid = cur.fetchone()["id"]
+                cur.execute(
+                    "SELECT id FROM transport_types WHERE status='active' "
+                    "ORDER BY id LIMIT 2"
+                )
+                t1, t2 = [row["id"] for row in cur.fetchall()]
+                _, passenger_id = self._active_ids()
+                cur.execute(
+                    "SELECT name FROM transport_types WHERE id = %s", (t1,)
+                )
+                t1_name = cur.fetchone()["name"]
+                for t in (t1, t2):
+                    cur.execute(
+                        "INSERT INTO fare_calculations "
+                        "(user_id, transport_type_id, passenger_type_id, distance, "
+                        "regular_fare, final_fare) VALUES (%s, %s, %s, 5.0, 20.0, 20.0)",
+                        (uid, t, passenger_id),
+                    )
+        finally:
+            conn.close()
+
+        # Site search filters by transport name.
+        filter_term = t1_name.split()[0]
+        html = self.client.get(f"/history?q={filter_term}").get_data(as_text=True)
+        self.assertIn(t1_name, html)
+
+        # CSV export lists both rows, honors the search filter, and is public-URL safe.
+        body = self.client.get("/history/export").get_data(as_text=True)
+        self.assertEqual(200, self.client.get("/history/export").status_code)
+        self.assertIn("Transport", body.splitlines()[0])
+        self.assertEqual(len(body.splitlines()) - 1, 2)
+
+        one = self.client.get(f"/history/export?q={filter_term}").get_data(as_text=True)
+        self.assertEqual(len(one.splitlines()) - 1, 1)
+
+        self._post("/logout", {}, "/account")
+        self.assertEqual(self.client.get("/history/export").status_code, 302)
+
+    # ------------------------------------------------------ admin routes
+    def test_admin_routes_page_requires_admin(self):
+        self.assertEqual(self.client.get("/admin/routes").status_code, 302)
+        self._login_as_temp_user()
+        self.assertEqual(self.client.get("/admin/routes").status_code, 403)
+
+    def test_admin_routes_crud(self):
+        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
+        transport_id = self._active_ids()[0]
+
+        self._post(
+            "/admin/routes",
+            {"transport_type_id": str(transport_id),
+             "origin": "IT TEST One", "destination": "IT TEST Two",
+             "distance_km": "4.75"},
+            "/admin/routes",
+        )
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM routes WHERE origin='IT TEST One' "
+                    "AND destination='IT TEST Two'"
+                )
+                route_id = cur.fetchone()["id"]
+        finally:
+            conn.close()
+
+        self._post(f"/admin/routes/{route_id}/toggle", {}, "/admin/routes")
+        self._post(f"/admin/routes/{route_id}/delete", {}, "/admin/routes")
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM routes WHERE id = %s", (route_id,))
+                self.assertIsNone(cur.fetchone())
         finally:
             conn.close()
 

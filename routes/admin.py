@@ -72,6 +72,27 @@ def dashboard():
         total_calculations = cur.fetchone()["c"]
 
         cur.execute(
+            "SELECT COUNT(*) AS c FROM users WHERE status = 'active'"
+        )
+        active_users = cur.fetchone()["c"]
+
+        cur.execute("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'")
+        admin_count = cur.fetchone()["c"]
+
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM users WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+        )
+        new_users_7d = cur.fetchone()["c"]
+
+        cur.execute(
+            """
+            SELECT COUNT(*) AS c FROM fare_calculations
+            WHERE calculated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            """
+        )
+        calcs_7d = cur.fetchone()["c"]
+
+        cur.execute(
             """
             SELECT tt.name AS transport_name, COUNT(*) AS c
             FROM fare_calculations fc
@@ -102,6 +123,10 @@ def dashboard():
         "admin/dashboard.html",
         active="dashboard",
         total_users=total_users,
+        active_users=active_users,
+        admin_count=admin_count,
+        new_users_7d=new_users_7d,
+        calcs_7d=calcs_7d,
         active_transports=active_transports,
         active_fare_rates=active_fare_rates,
         total_calculations=total_calculations,
