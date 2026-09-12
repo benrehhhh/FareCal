@@ -1,0 +1,88 @@
+{% extends "admin/base.html" %}
+
+{% block title %}FareCal Admin — Users{% endblock %}
+
+{% block content %}
+
+{% from "partials/back_button.html" import back_button %}
+{{ back_button(url_for('admin.dashboard'), 'Back to Admin Dashboard') }}
+
+<h1 class="fs-3 fw-bold mb-1">User Management</h1>
+<p class="text-muted">Search, review, and activate or deactivate user accounts.</p>
+
+<form method="GET" action="{{ url_for('admin.users') }}" class="row g-2 mb-4">
+    <div class="col-md-5 col-lg-4">
+        <input type="text" name="q" id="userSearch" class="form-control"
+               placeholder="Search by name or email" value="{{ q }}">
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if q %}
+            <a href="{{ url_for('admin.users') }}" class="btn btn-outline-secondary">Clear</a>
+        {% endif %}
+    </div>
+</form>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if users %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="usersTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Joined</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td>{{ u.name }}</td>
+                            <td>{{ u.email }}</td>
+                            <td>
+                                {% if u.role == 'admin' %}
+                                    <span class="badge text-bg-warning">Admin</span>
+                                {% else %}
+                                    <span class="badge text-bg-secondary">User</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if u.status == 'active' %}
+                                    <span class="badge text-bg-success">Active</span>
+                                {% else %}
+                                    <span class="badge text-bg-danger">Inactive</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ u.created_at.strftime('%b %d, %Y') }}</td>
+                            <td>
+                                {% if u.id != current_user.id %}
+                                    <form method="POST"
+                                          action="{{ url_for('admin.toggle_user', user_id=u.id) }}"
+                                          data-confirm="Change this user's status to {{ 'inactive' if u.status == 'active' else 'active' }}?"
+                                          class="d-inline">
+                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit"
+                                                class="btn btn-sm {{ 'btn-warning' if u.status == 'active' else 'btn-success' }}">
+                                            {{ 'Deactivate' if u.status == 'active' else 'Activate' }}
+                                        </button>
+                                    </form>
+                                {% else %}
+                                    <span class="text-muted small">You</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="text-muted text-center py-4 mb-0">No users found.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

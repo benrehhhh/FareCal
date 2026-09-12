@@ -1,0 +1,6 @@
+{% macro back_button(href, label) %}
+<a href="{{ href }}" class="back-link d-inline-flex align-items-center gap-1 mb-3 text-decoration-none">
+    <span aria-hidden="true">&#8592;</span>
+    <span>{{ label }}</span>
+</a>
+{% endmacro %}

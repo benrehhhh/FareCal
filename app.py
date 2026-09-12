@@ -8,8 +8,10 @@ from flask import Flask, render_template, request, session
 
 from config import Config
 from database.connection import close_db
+from routes.admin import admin_bp
 from routes.auth import auth_bp
 from routes.fare import fare_bp
+from routes.user import user_bp
 from utils.csrf import generate_csrf_token, validate_csrf_token
 
 
@@ -24,9 +26,21 @@ def create_app(config_class=Config):
     # Blueprints (routes are grouped by area — see the routes/ folder).
     app.register_blueprint(auth_bp)
     app.register_blueprint(fare_bp)
+    app.register_blueprint(user_bp)
+    app.register_blueprint(admin_bp)
 
     # Make the CSRF token helper available in every template.
     app.jinja_env.globals["csrf_token"] = generate_csrf_token
+
+    @app.template_filter("peso")
+    def format_peso(value):
+        """Format a numeric value as Philippine pesos, e.g. 24.0 -> ₱24.00."""
+        if value is None or value == "":
+            return "—"
+        try:
+            return f"₱{float(value):,.2f}"
+        except (TypeError, ValueError):
+            return "—"
 
     @app.before_request
     def protect_against_csrf():

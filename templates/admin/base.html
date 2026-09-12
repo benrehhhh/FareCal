@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FareCal Admin{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="d-flex flex-column min-vh-100">
+
+    <nav class="navbar navbar-expand-lg navbar-dark app-header">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">
+                <span class="brand-mark">F</span> FareCal
+                <span class="badge text-bg-light ms-1">Admin</span>
+            </a>
+            <div class="ms-auto d-flex align-items-center gap-3">
+                {% if current_user %}
+                    <span class="text-white-50 small d-none d-lg-inline">Hi, {{ current_user.name }}</span>
+                {% endif %}
+                <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">View Site</a>
+                <form method="POST" action="{{ url_for('auth.logout') }}" class="d-inline">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline-light btn-sm">Logout</button>
+                </form>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid flex-grow-1">
+        <div class="row flex-nowrap">
+
+            <!-- Sidebar -->
+            <div class="col-auto col-md-3 col-xl-2 p-0 admin-sidebar">
+                <ul class="nav flex-column p-3 gap-1">
+                    <li class="nav-item">
+                        <a class="nav-link {{ 'active' if active == 'dashboard' else '' }}"
+                           href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {{ 'active' if active == 'users' else '' }}"
+                           href="{{ url_for('admin.users') }}">Users</a>
+                    </li>
+                    {# Added in the next admin milestone (5B):
+                    <li class="nav-item">
+                        <a class="nav-link {{ 'active' if active == 'transport_types' else '' }}"
+                           href="{{ url_for('admin.transport_types') }}">Transport Types</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {{ 'active' if active == 'fare_rates' else '' }}"
+                           href="{{ url_for('admin.fare_rates') }}">Fare Rates</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {{ 'active' if active == 'passenger_types' else '' }}"
+                           href="{{ url_for('admin.passenger_types') }}">Passenger Types</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {{ 'active' if active == 'calculations' else '' }}"
+                           href="{{ url_for('admin.calculations') }}">Calculations</a>
+                    </li>
+                    #}
+                </ul>
+            </div>
+
+            <!-- Main content -->
+            <main class="col py-4 ps-4 pe-4" style="min-width: 0;">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

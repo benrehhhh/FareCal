@@ -25,7 +25,19 @@
                         <a class="nav-link" href="{{ url_for('index') }}">Fare Calculator</a>
                     </li>
 
+                    {% if current_user and current_user.role == 'admin' %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('admin.dashboard') }}">Admin</a>
+                        </li>
+                    {% endif %}
+
                     {% if current_user %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('user.dashboard') }}">Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('user.history') }}">History</a>
+                        </li>
                         <li class="nav-item">
                             <span class="nav-link text-white-50">Hi, {{ current_user.name }}</span>
                         </li>

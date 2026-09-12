@@ -1,0 +1,104 @@
+<div id="calculatorAlert"></div>
+
+<div class="row justify-content-center g-4">
+
+    <!-- Calculator form -->
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white fw-bold">
+                Calculate Your Fare
+            </div>
+            <div class="card-body">
+                <form id="fareForm" novalidate>
+
+                    <div class="mb-3">
+                        <label for="transportType" class="form-label">Transportation</label>
+                        <select id="transportType" class="form-select" name="transport_type_id" required>
+                            <option value="" selected>Loading transportation types…</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="distance" class="form-label">Distance</label>
+                        <div class="input-group">
+                            <input type="number" id="distance" name="distance"
+                                   class="form-control" min="0.5" max="500" step="0.01"
+                                   placeholder="Enter distance" required>
+                            <span class="input-group-text">km</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="passengerType" class="form-label">Passenger Type</label>
+                        <select id="passengerType" class="form-select" name="passenger_type_id" required>
+                            <option value="" selected>Loading passenger types…</option>
+                        </select>
+                        <div class="form-text" id="discountHint"></div>
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg" id="calculateBtn">
+                            <span class="spinner-border spinner-border-sm d-none" id="calcSpinner"
+                                  role="status" aria-hidden="true"></span>
+                            <span id="calcBtnText">Calculate Fare</span>
+                        </button>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Result panel -->
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm h-100 d-none" id="resultPanel">
+            <div class="card-header bg-white fw-bold">
+                Fare Breakdown
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-5">Transportation</dt>
+                    <dd class="col-sm-7" id="resultTransport">—</dd>
+
+                    <dt class="col-sm-5">Distance</dt>
+                    <dd class="col-sm-7" id="resultDistance">—</dd>
+
+                    <dt class="col-sm-5">Passenger Type</dt>
+                    <dd class="col-sm-7" id="resultPassenger">—</dd>
+
+                    <hr class="my-2">
+
+                    <dt class="col-sm-5">Regular Fare</dt>
+                    <dd class="col-sm-7" id="resultRegularFare">—</dd>
+
+                    <dt class="col-sm-5">Discount Rate</dt>
+                    <dd class="col-sm-7" id="resultDiscountRate">—</dd>
+
+                    <dt class="col-sm-5">Discount Amount</dt>
+                    <dd class="col-sm-7" id="resultDiscountAmount">—</dd>
+
+                    <hr class="my-2">
+
+                    <dt class="col-sm-5">
+                        <span class="fw-bold">Estimated Fare</span>
+                    </dt>
+                    <dd class="col-sm-7">
+                        <span class="fs-3 fw-bold text-primary" id="resultFinalFare">—</span>
+                    </dd>
+                </dl>
+
+                <div id="resultNotes" class="mt-3"></div>
+                <div id="resultSource" class="small text-muted mt-3"></div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm" id="resultPlaceholder">
+            <div class="card-body text-center text-muted py-5">
+                <p class="mb-0">
+                    Select a transportation type, enter your distance, choose a passenger
+                    type, then press <strong>Calculate Fare</strong> to see the breakdown here.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>

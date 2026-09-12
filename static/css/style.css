@@ -93,3 +93,39 @@ a:hover {
 .table > :not(caption) > * > * {
     vertical-align: middle;
 }
+
+/* Back links */
+.back-link {
+    color: var(--fc-accent);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.back-link:hover {
+    color: var(--fc-accent-dark);
+    text-decoration: underline !important;
+}
+
+/* Admin sidebar */
+.admin-sidebar {
+    background-color: var(--fc-bg-soft);
+    border-right: 1px solid var(--fc-border);
+    min-height: calc(100vh - 56px);
+}
+
+.admin-sidebar .nav-link {
+    color: #495057;
+    border-radius: 0.35rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.admin-sidebar .nav-link:hover {
+    background-color: #e9eef5;
+    color: var(--fc-accent-dark);
+}
+
+.admin-sidebar .nav-link.active {
+    background-color: var(--fc-accent);
+    color: #ffffff;
+    font-weight: 600;
+}
