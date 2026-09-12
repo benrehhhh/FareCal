@@ -12,6 +12,18 @@
                 <form id="fareForm" novalidate>
 
                     <div class="mb-3">
+                        <label for="routePreset" class="form-label">
+                            Common Routes <span class="text-muted">(optional)</span>
+                        </label>
+                        <select id="routePreset" class="form-select">
+                            <option value="" selected>Developing…</option>
+                        </select>
+                        <div class="form-text">
+                            Pick a saved route to auto-fill the transportation and distance below.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
                         <label for="transportType" class="form-label">Transportation</label>
                         <select id="transportType" class="form-select" name="transport_type_id" required>
                             <option value="" selected>Loading transportation types…</option>

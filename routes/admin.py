@@ -20,6 +20,8 @@ from flask import (
 from database.connection import get_db
 from utils.decorators import admin_required
 
+from config import MAX_DISTANCE_KM
+
 admin_bp = Blueprint("admin", __name__)
 
 CALCULATIONS_PER_PAGE = 20
@@ -458,6 +460,130 @@ def toggle_passenger_type(pt_id):
 
     flash(f"Passenger type '{row['name']}' is now {new_status}.", "success")
     return redirect(url_for("admin.passenger_types"))
+
+
+@admin_bp.route("/admin/routes", methods=["GET", "POST"])
+@admin_required
+def routes():
+    """List common-route presets; add a new one via the form above the table."""
+    db = get_db()
+
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id, name FROM transport_types WHERE status = 'active' ORDER BY name"
+        )
+        transports = cur.fetchall()
+
+    if request.method == "POST":
+        transport_id = request.form.get("transport_type_id", "").strip()
+        origin = request.form.get("origin", "").strip()
+        destination = request.form.get("destination", "").strip()
+
+        error = None
+        try:
+            distance = _parse_decimal(request.form.get("distance_km"), "Distance")
+        except ValueError as exc:
+            error = str(exc)
+            distance = None
+
+        if error is None:
+            if len(origin) < 2:
+                error = "Origin must be at least 2 characters."
+            elif len(destination) < 2:
+                error = "Destination must be at least 2 characters."
+            elif distance is None or distance <= 0:
+                error = "Distance must be greater than zero."
+            elif distance > MAX_DISTANCE_KM:
+                error = f"Distance cannot exceed {MAX_DISTANCE_KM} km."
+
+        if error is None:
+            with db.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM transport_types WHERE id = %s", (transport_id,)
+                )
+                if cur.fetchone() is None:
+                    error = "Please choose a valid transport type."
+                else:
+                    try:
+                        cur.execute(
+                            """
+                            INSERT INTO routes
+                                (transport_type_id, origin, destination, distance_km)
+                            VALUES (%s, %s, %s, %s)
+                            """,
+                            (transport_id, origin, destination, distance),
+                        )
+                    except pymysql.err.IntegrityError:
+                        error = (
+                            "A route with that transport, origin, and destination "
+                            "already exists."
+                        )
+
+        if error is None:
+            flash(f"Route '{origin} → {destination}' added.", "success")
+        else:
+            flash(error, "warning")
+        return redirect(url_for("admin.routes"))
+
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT r.id, r.origin, r.destination, r.distance_km, r.status,
+                   tt.name AS transport_name
+            FROM routes r
+            JOIN transport_types tt ON tt.id = r.transport_type_id
+            ORDER BY tt.name, r.origin, r.destination
+            """
+        )
+        rows = cur.fetchall()
+
+    return render_template(
+        "admin/routes.html",
+        active="routes",
+        rows=rows,
+        transports=transports,
+    )
+
+
+@admin_bp.route("/admin/routes/<int:route_id>/toggle", methods=["POST"])
+@admin_required
+def toggle_route(route_id):
+    """Activate or deactivate a saved route."""
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute("SELECT origin, status FROM routes WHERE id = %s", (route_id,))
+        row = cur.fetchone()
+
+        if row is None:
+            flash("Route not found.", "warning")
+            return redirect(url_for("admin.routes"))
+
+        new_status = "inactive" if row["status"] == "active" else "active"
+        cur.execute(
+            "UPDATE routes SET status = %s WHERE id = %s", (new_status, route_id)
+        )
+
+    flash(f"Route is now {new_status}.", "success")
+    return redirect(url_for("admin.routes"))
+
+
+@admin_bp.route("/admin/routes/<int:route_id>/delete", methods=["POST"])
+@admin_required
+def delete_route(route_id):
+    """Delete a saved route preset."""
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT origin, destination FROM routes WHERE id = %s", (route_id,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            flash("Route not found.", "warning")
+            return redirect(url_for("admin.routes"))
+        cur.execute("DELETE FROM routes WHERE id = %s", (route_id,))
+
+    flash(f"Route '{row['origin']} → {row['destination']}' deleted.", "success")
+    return redirect(url_for("admin.routes"))
 
 
 @admin_bp.route("/admin/calculations")

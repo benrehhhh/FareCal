@@ -8,6 +8,7 @@ const API = {
     transportTypes: "/api/transport-types",
     passengerTypes: "/api/passenger-types",
     calculateFare: "/api/calculate-fare",
+    routes: "/api/routes",
 };
 
 const currency = new Intl.NumberFormat("en-PH", {
@@ -110,11 +111,62 @@ function updateDiscountHint() {
             : "No discount applies for this passenger type.";
 }
 
+const routeData = new Map();
+
+function populateRoutes(select, routes) {
+    select.innerHTML = "";
+    if (routes.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No saved routes yet.";
+        option.disabled = true;
+        option.selected = true;
+        select.appendChild(option);
+        select.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a saved route to auto-fill…";
+    placeholder.selected = true;
+    select.appendChild(placeholder);
+
+    routeData.clear();
+    routes.forEach((route) => {
+        const option = document.createElement("option");
+        option.value = route.id;
+        option.textContent =
+            `${route.origin} → ${route.destination} ` +
+            `(${Number(route.distance_km).toFixed(2)} km)`;
+        select.appendChild(option);
+        routeData.set(String(route.id), route);
+    });
+}
+
+function applyRoute(routeId) {
+    const route = routeData.get(routeId);
+    if (!route) {
+        return;
+    }
+    const transportSelect = document.getElementById("transportType");
+    const transportOption = Array.from(transportSelect.options).find(
+        (option) => option.value === String(route.transport_type_id)
+    );
+    if (!transportOption) {
+        showAlert("The transportation type for this route is not available.", "warning");
+        return;
+    }
+    transportSelect.value = String(route.transport_type_id);
+    document.getElementById("distance").value = Number(route.distance_km).toFixed(2);
+}
+
 async function loadOptions() {
     try {
-        const [transportTypes, passengerTypes] = await Promise.all([
+        const [transportTypes, passengerTypes, routes] = await Promise.all([
             fetchJson(API.transportTypes),
             fetchJson(API.passengerTypes),
+            fetchJson(API.routes),
         ]);
 
         populateSelect(document.getElementById("transportType"), transportTypes);
@@ -123,6 +175,7 @@ async function loadOptions() {
             passengerTypes,
             "discount_percentage"
         );
+        populateRoutes(document.getElementById("routePreset"), routes);
         updateDiscountHint();
     } catch (error) {
         showAlert(
@@ -134,6 +187,10 @@ async function loadOptions() {
 
 document.addEventListener("DOMContentLoaded", () => {
     loadOptions();
+
+    document.getElementById("routePreset").addEventListener("change", (event) => {
+        applyRoute(event.target.value);
+    });
 
     document.getElementById("passengerType").addEventListener("change", updateDiscountHint);
 

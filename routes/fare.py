@@ -47,6 +47,33 @@ def api_passenger_types():
     return jsonify({"success": True, "result": rows})
 
 
+@fare_bp.route("/api/routes")
+def api_routes():
+    """Return active common-route presets, optionally filtered by transport."""
+    transport_id = request.args.get("transport_id")
+    db = get_db()
+
+    sql = """
+        SELECT id, transport_type_id, origin, destination, distance_km
+        FROM routes
+        WHERE status = 'active'
+    """
+    params = []
+    if transport_id:
+        try:
+            transport_id = int(transport_id)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "message": "Invalid transport id."}), 400
+        sql += " AND transport_type_id = %s"
+        params.append(transport_id)
+    sql += " ORDER BY origin, destination"
+
+    with db.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return jsonify({"success": True, "result": rows})
+
+
 @fare_bp.route("/api/calculate-fare", methods=["POST"])
 def api_calculate_fare():
     """Calculate a fare.

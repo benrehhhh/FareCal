@@ -118,6 +118,27 @@ CREATE TABLE IF NOT EXISTS fare_calculations (
         FOREIGN KEY (passenger_type_id) REFERENCES passenger_types (id)
 ) ENGINE = InnoDB;
 
+-- -------------------------------------------------------------------
+-- routes  (common-route presets so users can skip typing a distance)
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS routes (
+    id                INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    transport_type_id INT UNSIGNED  NOT NULL,
+    origin            VARCHAR(100)  NOT NULL,
+    destination       VARCHAR(100)  NOT NULL,
+    distance_km       DECIMAL(10, 2) NOT NULL,
+    status            ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                    ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_routes_transport_origin_destination
+        (transport_type_id, origin, destination),
+    CONSTRAINT fk_routes_transport_type
+        FOREIGN KEY (transport_type_id) REFERENCES transport_types (id)
+        ON DELETE CASCADE
+) ENGINE = InnoDB;
+
 -- ===================================================================
 -- SAMPLE SEED DATA
 -- These values are TEST data, not official fare rates.
@@ -185,4 +206,69 @@ INSERT IGNORE INTO fare_rates
 SELECT id, 'base_succeeding', 1.00, 55.00, 14.00, NULL, NULL, NULL,
        'round_up_1', '2025-01-01', NULL, 'active',
        'SAMPLE test data - not official'
+FROM transport_types WHERE name = 'Taxi';
+
+-- -------------------------------------------------------------------
+-- Sample common routes
+-- Distance values are APPROXIMATE community/public estimates (regular
+-- point-to-point distance), intended for quick fare estimation only.
+-- -------------------------------------------------------------------
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'Divisoria', 'Quiapo', 3.00
+FROM transport_types WHERE name = 'Traditional PUJ';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'Monumento', 'Cubao', 12.50
+FROM transport_types WHERE name = 'Traditional PUJ';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'Baclaran', 'Bacoor', 13.50
+FROM transport_types WHERE name = 'Traditional PUJ';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'SM City Fairview', 'Cubao', 18.00
+FROM transport_types WHERE name = 'Modernized PUJ';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'Alabang', 'Baclaran', 18.50
+FROM transport_types WHERE name = 'Modernized PUJ';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'Binangonan', 'SM Megamall', 25.00
+FROM transport_types WHERE name = 'UV Express';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'Alabang', 'Ayala', 14.50
+FROM transport_types WHERE name = 'UV Express';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'Pacita Complex', 'Ayala', 15.50
+FROM transport_types WHERE name = 'Bus';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'Monumento', 'Pasay', 14.00
+FROM transport_types WHERE name = 'Bus';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'SM City Fairview', 'Monumento', 15.50
+FROM transport_types WHERE name = 'Bus';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'NAIA Terminal 3', 'Makati (Ayala)', 7.50
+FROM transport_types WHERE name = 'Taxi';
+
+INSERT IGNORE INTO routes
+    (transport_type_id, origin, destination, distance_km)
+SELECT id, 'NAIA Terminal 3', 'Divisoria', 12.00
 FROM transport_types WHERE name = 'Taxi';

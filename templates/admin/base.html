@@ -56,6 +56,10 @@
                            href="{{ url_for('admin.passenger_types') }}">Passenger Types</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {{ 'active' if active == 'routes' else '' }}"
+                           href="{{ url_for('admin.routes') }}">Routes</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {{ 'active' if active == 'calculations' else '' }}"
                            href="{{ url_for('admin.calculations') }}">Calculations</a>
                     </li>
