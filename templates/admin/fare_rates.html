@@ -1,0 +1,198 @@
+{% extends "admin/base.html" %}
+
+{% block title %}FareCal Admin — Fare Rates{% endblock %}
+
+{% block content %}
+
+{% from "partials/back_button.html" import back_button %}
+{{ back_button(url_for('admin.dashboard'), 'Back to Admin Dashboard') }}
+
+<h1 class="fs-3 fw-bold mb-1">Fare Rates</h1>
+<p class="text-muted">Configure the base + succeeding or per-km fare rules per transport type.</p>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white fw-bold">Add New Fare Rate</div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.fare_rates') }}" class="row g-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+            <div class="col-md-3">
+                <label class="form-label" for="transport_type_id">Transport Type *</label>
+                <select class="form-select" id="transport_type_id" name="transport_type_id" required>
+                    <option value="">— Choose —</option>
+                    {% for t in transports %}
+                        <option value="{{ t.id }}">{{ t.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label" for="fare_method">Fare Method *</label>
+                <select class="form-select" id="fare_method" name="fare_method" required>
+                    <option value="base_succeeding">Base + succeeding</option>
+                    <option value="per_km">Fixed per-km rate</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label" for="effective_date">Effective Date *</label>
+                <input type="date" class="form-control" id="effective_date"
+                       name="effective_date" value="{{ today }}" required>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label" for="expiration_date">Expiration Date</label>
+                <input type="date" class="form-control" id="expiration_date" name="expiration_date">
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label" for="base_distance">Base Distance (km)</label>
+                <input type="number" class="form-control" id="base_distance" name="base_distance"
+                       min="0" step="0.01">
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label" for="base_fare">Base Fare (₱)</label>
+                <input type="number" class="form-control" id="base_fare" name="base_fare"
+                       min="0" step="0.01">
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label" for="succeeding_rate">Succeeding Rate (₱/km)</label>
+                <input type="number" class="form-control" id="succeeding_rate"
+                       name="succeeding_rate" min="0" step="0.01">
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label" for="per_km_rate">Per-km Rate (₱/km)</label>
+                <input type="number" class="form-control" id="per_km_rate" name="per_km_rate"
+                       min="0" step="0.01">
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label" for="minimum_fare">Min Fare (₱)</label>
+                <input type="number" class="form-control" id="minimum_fare" name="minimum_fare"
+                       min="0" step="0.01">
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label" for="maximum_fare">Max Fare (₱)</label>
+                <input type="number" class="form-control" id="maximum_fare" name="maximum_fare"
+                       min="0" step="0.01">
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label" for="rounding_rule">Rounding Rule</label>
+                <select class="form-select" id="rounding_rule" name="rounding_rule">
+                    <option value="round_up_025">Up to nearest ₱0.25</option>
+                    <option value="round_up_1">Up to nearest ₱1</option>
+                    <option value="round_2">Standard 2-decimal</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label" for="status">Status</label>
+                <select class="form-select" id="status" name="status">
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label" for="source_reference">Source Reference</label>
+                <input type="text" class="form-control" id="source_reference"
+                       name="source_reference" placeholder="e.g. LTFRB Memo Circular ...">
+            </div>
+
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Add Fare Rate</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if rows %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Transport</th>
+                            <th>Method</th>
+                            <th>Base</th>
+                            <th>Per-km</th>
+                            <th>Min / Max</th>
+                            <th>Rounding</th>
+                            <th>Effective</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in rows %}
+                        <tr>
+                            <td class="fw-bold">{{ r.transport_name }}</td>
+                            <td>
+                                {% if r.fare_method == 'per_km' %}
+                                    <span class="badge text-bg-info">per-km</span>
+                                {% else %}
+                                    <span class="badge text-bg-light border">base + succ.</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if r.fare_method == 'base_succeeding' %}
+                                    {{ '%.2f'|format(r.base_fare|float) }} @ {{ '%.2f'|format(r.base_distance|float) }} km
+                                    <span class="d-block text-muted small">+ {{ '%.2f'|format(r.succeeding_rate|float) }}/km</span>
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if r.fare_method == 'per_km' %}
+                                    {{ '%.2f'|format(r.per_km_rate|float) }}/km
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>{{ r.minimum_fare|peso }} / {{ r.maximum_fare|peso }}</td>
+                            <td><code>{{ r.rounding_rule }}</code></td>
+                            <td>{{ r.effective_date.strftime('%b %d, %Y') }}{% if r.expiration_date %}<span class="text-muted small"> → {{ r.expiration_date.strftime('%b %d, %Y') }}</span>{% endif %}</td>
+                            <td>
+                                {% if r.status == 'active' %}
+                                    <span class="badge text-bg-success">Active</span>
+                                {% else %}
+                                    <span class="badge text-bg-danger">Inactive</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <form method="POST"
+                                      action="{{ url_for('admin.toggle_fare_rate', fr_id=r.id) }}"
+                                      data-confirm="Set this fare rate to {{ 'inactive' if r.status == 'active' else 'active' }}?"
+                                      class="d-inline">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit"
+                                            class="btn btn-sm {{ 'btn-warning' if r.status == 'active' else 'btn-success' }}">
+                                        {{ 'Deactivate' if r.status == 'active' else 'Activate' }}
+                                    </button>
+                                </form>
+                                <form method="POST"
+                                      action="{{ url_for('admin.delete_fare_rate', fr_id=r.id) }}"
+                                      data-confirm="Permanently delete this fare rate ({{ r.transport_name }}, effective {{ r.effective_date.strftime('%b %d, %Y') }})?"
+                                      class="d-inline">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="text-muted text-center py-4 mb-0">No fare rates configured yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

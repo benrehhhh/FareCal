@@ -70,6 +70,13 @@
                                             {{ 'Deactivate' if u.status == 'active' else 'Activate' }}
                                         </button>
                                     </form>
+                                    <form method="POST"
+                                          action="{{ url_for('admin.delete_user', user_id=u.id) }}"
+                                          data-confirm="Permanently delete this user? Their history will show as 'Guest'."
+                                          class="d-inline">
+                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                    </form>
                                 {% else %}
                                     <span class="text-muted small">You</span>
                                 {% endif %}

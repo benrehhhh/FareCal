@@ -1,0 +1,97 @@
+{% extends "admin/base.html" %}
+
+{% block title %}FareCal Admin — Calculations{% endblock %}
+
+{% block content %}
+
+{% from "partials/back_button.html" import back_button %}
+{{ back_button(url_for('admin.dashboard'), 'Back to Admin Dashboard') }}
+
+<h1 class="fs-3 fw-bold mb-1">Calculations</h1>
+<p class="text-muted mb-4">Every saved fare estimate across all users, newest first.</p>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if rows %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>User</th>
+                            <th>Transportation</th>
+                            <th>Distance</th>
+                            <th>Passenger Type</th>
+                            <th>Discount</th>
+                            <th>Final Fare</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for calc in rows %}
+                        <tr>
+                            <td>{{ calc.calculated_at.strftime('%b %d, %Y %I:%M %p') }}</td>
+                            <td>{{ calc.user_name }}</td>
+                            <td>{{ calc.transport_name }}</td>
+                            <td>{{ '%.2f'|format(calc.distance|float) }} km</td>
+                            <td>{{ calc.passenger_name }}</td>
+                            <td>
+                                {{ calc.discount_amount|peso }}
+                                {% if calc.discount_percentage|float > 0 %}
+                                    <span class="badge text-bg-info">{{ '%.0f'|format(calc.discount_percentage|float) }}%</span>
+                                {% endif %}
+                            </td>
+                            <td class="fw-bold">{{ calc.final_fare|peso }}</td>
+                            <td>
+                                <form method="POST"
+                                      action="{{ url_for('admin.delete_calculation', calc_id=calc.id) }}"
+                                      data-confirm="Permanently delete this calculation?"
+                                      class="d-inline">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                    <input type="hidden" name="page" value="{{ page }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center text-muted py-5">
+                <p class="mb-0">No calculations recorded yet.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if rows %}
+<div class="d-flex justify-content-between align-items-center mt-3 small text-muted">
+    <span>Page {{ page }} of {{ total_pages }} · {{ total }} calculations total</span>
+    <nav aria-label="Calculation pages">
+        <ul class="pagination pagination-sm mb-0">
+            {% if page > 1 %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('admin.calculations', page=page-1) }}">Previous</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">Previous</span>
+                </li>
+            {% endif %}
+
+            {% if page < total_pages %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('admin.calculations', page=page+1) }}">Next</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">Next</span>
+                </li>
+            {% endif %}
+        </ul>
+    </nav>
+</div>
+{% endif %}
+
+{% endblock %}
