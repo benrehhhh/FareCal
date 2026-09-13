@@ -2,6 +2,10 @@
 
 {% block title %}FareCal — Fare Calculator{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+{% endblock %}
+
 {% block content %}
 
 <div class="text-center mb-4">
@@ -48,5 +52,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
 <script src="{{ url_for('static', filename='js/calculator.js') }}"></script>
 {% endblock %}

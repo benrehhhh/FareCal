@@ -160,6 +160,40 @@ def validate_distance(raw):
     return distance
 
 
+def _optional_text(raw, max_len=100):
+    """Trim an optional place name; empty becomes None (column is NULL)."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text[:max_len] or None
+
+
+def _optional_coordinate(raw, label, min_value, max_value):
+    """Validate an optional coordinate; None is allowed (column stays NULL)."""
+    if raw is None or raw == "":
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise FareCalculationError(f"Invalid {label}.")
+    if not (min_value <= value <= max_value):
+        raise FareCalculationError(f"Invalid {label}.")
+    return value
+
+
+def _optional_duration(raw):
+    """Validate an optional travel duration in seconds; None is allowed."""
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise FareCalculationError("Invalid estimated duration.")
+    if value < 0:
+        raise FareCalculationError("Invalid estimated duration.")
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Database-driven orchestrator
 # ---------------------------------------------------------------------------
@@ -182,20 +216,43 @@ def _get_current_fare_rate(cursor, transport_type_id):
     return cursor.fetchone()
 
 
-def calculate_fare(transport_type_id, passenger_type_id, distance, user_id=None):
-    """Full fare calculation: validate, resolve DB records, compute, save history.
+def _load_and_compute(
+    transport_type_id,
+    passenger_type_id,
+    distance,
+    origin_name=None,
+    destination_name=None,
+    origin_latitude=None,
+    origin_longitude=None,
+    destination_latitude=None,
+    destination_longitude=None,
+    estimated_duration=None,
+):
+    """Validate inputs, resolve DB records, and compute the breakdown.
 
-    `user_id` (optional) records who made the calculation. Guests leave it
-    None and the row is stored with a NULL user_id.
+    The route metadata (`origin_*`, `destination_*`, `estimated_duration`) is
+    optional and comes from the map when the fare comes from a route. Each
+    field is validated and left as NULL when absent.
 
-    Returns a breakdown dict ready to be returned as JSON.
+    Returns the full breakdown dict (without a persisted calculation_id).
     Raises FareCalculationError for any rule/preference violation.
     """
     distance = validate_distance(distance)
     transport_type_id = _require_id(transport_type_id, "transportation type")
     passenger_type_id = _require_id(passenger_type_id, "passenger type")
-    # Coerce the caller-provided user id safely (None stays None).
-    owner_id = int(user_id) if user_id else None
+
+    # Optional route metadata — validated, coerced, or left as NULL.
+    origin_name = _optional_text(origin_name)
+    destination_name = _optional_text(destination_name)
+    origin_latitude = _optional_coordinate(origin_latitude, "origin coordinates", -90, 90)
+    origin_longitude = _optional_coordinate(origin_longitude, "origin coordinates", -180, 180)
+    destination_latitude = _optional_coordinate(
+        destination_latitude, "destination coordinates", -90, 90
+    )
+    destination_longitude = _optional_coordinate(
+        destination_longitude, "destination coordinates", -180, 180
+    )
+    estimated_duration = _optional_duration(estimated_duration)
 
     db = get_db()
     with db.cursor() as cur:
@@ -239,29 +296,7 @@ def calculate_fare(transport_type_id, passenger_type_id, distance, user_id=None)
             breakdown["regular_fare"], discount_percentage
         )
 
-        # 5. Save the calculation to history (user_id is NULL for guests)
-        cur.execute(
-            """
-            INSERT INTO fare_calculations
-                (user_id, transport_type_id, passenger_type_id, distance,
-                 regular_fare, discount_percentage, discount_amount, final_fare)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                owner_id,
-                transport_type_id,
-                passenger_type_id,
-                distance,
-                breakdown["regular_fare"],
-                discount_percentage,
-                discount_amount,
-                final_fare,
-            ),
-        )
-        calculation_id = cur.lastrowid
-
     return {
-        "calculation_id": calculation_id,
         "transport_type_id": transport_type_id,
         "transport_type": transport["name"],
         "passenger_type_id": passenger_type_id,
@@ -282,4 +317,109 @@ def calculate_fare(transport_type_id, passenger_type_id, distance, user_id=None)
         "discount_percentage": discount_percentage,
         "discount_amount": discount_amount,
         "final_fare": final_fare,
+        "origin_name": origin_name,
+        "destination_name": destination_name,
+        "origin_latitude": origin_latitude,
+        "origin_longitude": origin_longitude,
+        "destination_latitude": destination_latitude,
+        "destination_longitude": destination_longitude,
+        "estimated_duration": estimated_duration,
     }
+
+
+def compute_fare(
+    transport_type_id,
+    passenger_type_id,
+    distance,
+    origin_name=None,
+    destination_name=None,
+    origin_latitude=None,
+    origin_longitude=None,
+    destination_latitude=None,
+    destination_longitude=None,
+    estimated_duration=None,
+):
+    """Compute a fare breakdown without saving anything to history.
+
+    Used by the live rate preview. Shares the exact engine path with
+    `calculate_fare`, so previews always match the finalized result.
+    """
+    return _load_and_compute(
+        transport_type_id,
+        passenger_type_id,
+        distance,
+        origin_name=origin_name,
+        destination_name=destination_name,
+        origin_latitude=origin_latitude,
+        origin_longitude=origin_longitude,
+        destination_latitude=destination_latitude,
+        destination_longitude=destination_longitude,
+        estimated_duration=estimated_duration,
+    )
+
+
+def calculate_fare(
+    transport_type_id,
+    passenger_type_id,
+    distance,
+    origin_name=None,
+    destination_name=None,
+    origin_latitude=None,
+    origin_longitude=None,
+    destination_latitude=None,
+    destination_longitude=None,
+    estimated_duration=None,
+):
+    """Full fare calculation: compute the breakdown, then save it to history.
+
+    Returns a breakdown dict (including the stored calculation_id) ready to
+    be returned as JSON.
+    Raises FareCalculationError for any rule/preference violation.
+    """
+    payload = _load_and_compute(
+        transport_type_id,
+        passenger_type_id,
+        distance,
+        origin_name=origin_name,
+        destination_name=destination_name,
+        origin_latitude=origin_latitude,
+        origin_longitude=origin_longitude,
+        destination_latitude=destination_latitude,
+        destination_longitude=destination_longitude,
+        estimated_duration=estimated_duration,
+    )
+
+    # 5. Save the calculation to history (guest records, no user)
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO fare_calculations
+                (transport_type_id, passenger_type_id, distance,
+                 regular_fare, discount_percentage, discount_amount, final_fare,
+                 origin_name, destination_name,
+                 origin_latitude, origin_longitude,
+                 destination_latitude, destination_longitude,
+                 estimated_duration)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                payload["transport_type_id"],
+                payload["passenger_type_id"],
+                payload["distance_km"],
+                payload["regular_fare"],
+                payload["discount_percentage"],
+                payload["discount_amount"],
+                payload["final_fare"],
+                payload["origin_name"],
+                payload["destination_name"],
+                payload["origin_latitude"],
+                payload["origin_longitude"],
+                payload["destination_latitude"],
+                payload["destination_longitude"],
+                payload["estimated_duration"],
+            ),
+        )
+        payload["calculation_id"] = cur.lastrowid
+
+    return payload

@@ -1,18 +1,16 @@
 """Main entry point for the FareCal Flask application.
 
-The application factory registers blueprints, wires up authentication
-(sessions, CSRF, access control), and serves the homepage calculator.
+The application factory registers the fare/calculator blueprint and serves
+the homepage calculator. Stay slim: FareCal is a single-purpose fare-per-km
+calculator, so only the calculator features live here.
 """
 
-from flask import Flask, render_template, request, session
+from flask import Flask, jsonify, render_template, request
 
 from config import Config
-from database.connection import close_db
-from routes.admin import admin_bp
-from routes.auth import auth_bp
+from database.connection import close_db, test_connection
 from routes.fare import fare_bp
-from routes.user import user_bp
-from utils.csrf import generate_csrf_token, validate_csrf_token
+from utils.csrf import validate_csrf_token
 
 
 def create_app(config_class=Config):
@@ -24,13 +22,7 @@ def create_app(config_class=Config):
     app.teardown_appcontext(close_db)
 
     # Blueprints (routes are grouped by area — see the routes/ folder).
-    app.register_blueprint(auth_bp)
     app.register_blueprint(fare_bp)
-    app.register_blueprint(user_bp)
-    app.register_blueprint(admin_bp)
-
-    # Make the CSRF token helper available in every template.
-    app.jinja_env.globals["csrf_token"] = generate_csrf_token
 
     @app.template_filter("peso")
     def format_peso(value):
@@ -62,18 +54,20 @@ def create_app(config_class=Config):
             )
         return None
 
-    @app.context_processor
-    def inject_current_user():
-        """Expose the logged-in user's profile to every template."""
-        user = None
-        if session.get("user_id"):
-            user = {
-                "id": session["user_id"],
-                "name": session.get("name"),
-                "email": session.get("email"),
-                "role": session.get("role"),
+    @app.route("/healthz")
+    def healthz():
+        """Health check for platform health monitors (Render, Railway, etc.).
+
+        Returns 200 when MySQL is reachable, 503 otherwise.
+        """
+        status = test_connection()
+        code = 200 if status["ok"] else 503
+        return jsonify(
+            {
+                "status": "ok" if status["ok"] else "error",
+                "db": status["table_count"],
             }
-        return {"current_user": user}
+        ), code
 
     # --- Public pages ----------------------------------------------------
 

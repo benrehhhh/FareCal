@@ -2,33 +2,23 @@
  * FareCal — public fare calculator
  * Loads transportation + passenger options from the API, then posts the
  * user's selection to POST /api/calculate-fare and renders the breakdown.
+ * The calculation itself runs inside the "Calculate Your Fare" modal
+ * (STEP 2); the main page stays focused on route planning.
  * ===================================================================== */
 
 const API = {
     transportTypes: "/api/transport-types",
     passengerTypes: "/api/passenger-types",
     calculateFare: "/api/calculate-fare",
+    farePreview: "/api/fare-preview",
     routes: "/api/routes",
-    saveTrip: "/api/saved-trips",
+    rate: (transportId) => `/api/transport-types/${transportId}/rate`,
 };
 
 const currency = new Intl.NumberFormat("en-PH", {
     style: "currency",
     currency: "PHP",
 });
-
-function showAlert(message, type) {
-    const box = document.getElementById("calculatorAlert");
-    box.innerHTML =
-        `<div class="alert alert-${type} alert-dismissible fade show" role="alert">` +
-        `${message}` +
-        `<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>` +
-        `</div>`;
-}
-
-function clearAlert() {
-    document.getElementById("calculatorAlert").innerHTML = "";
-}
 
 function setLoading(isLoading) {
     const btn = document.getElementById("calculateBtn");
@@ -41,30 +31,27 @@ function setResultText(id, text) {
     document.getElementById(id).textContent = text;
 }
 
-let lastResult = null;
-
 function showResult(calc) {
-    lastResult = calc;
-    document.getElementById("resultPlaceholder").classList.add("d-none");
-    const panel = document.getElementById("resultPanel");
-    panel.classList.remove("d-none");
-
     setResultText("resultTransport", calc.transport_type);
     setResultText("resultDistance", `${Number(calc.distance_km).toFixed(2)} km`);
     setResultText("resultPassenger", calc.passenger_type);
+    setResultText(
+        "resultRoute",
+        calc.origin_name && calc.destination_name
+            ? `${calc.origin_name} → ${calc.destination_name}`
+            : "—"
+    );
     setResultText("resultRegularFare", currency.format(calc.regular_fare));
     setResultText("resultDiscountRate", `${Number(calc.discount_percentage).toFixed(0)}%`);
     setResultText("resultDiscountAmount", currency.format(calc.discount_amount));
     setResultText("resultFinalFare", currency.format(calc.final_fare));
-    document.getElementById("resultPrintMeta").textContent =
-        `Generated ${new Date().toLocaleString()}`;
 
-    // "Save this trip" is only available to logged-in users.
-    if (window.FareCalConfig && window.FareCalConfig.loggedIn) {
-        const saveBtn = document.getElementById("saveTripBtn");
-        saveBtn.classList.remove("d-none");
-        saveBtn.textContent = "Save this trip";
-        saveBtn.disabled = false;
+    // The total-to-pay readout appears once a fare is calculated; clicking it
+    // opens the full Fare Breakdown modal.
+    const totalBox = document.getElementById("totalFareBox");
+    if (totalBox) {
+        document.getElementById("totalFareAmount").textContent = currency.format(calc.final_fare);
+        totalBox.classList.remove("d-none");
     }
 
     // Notes: minimum / maximum fare applied.
@@ -86,6 +73,30 @@ function showResult(calc) {
         ? `Fare rule reference: ${calc.source_reference}`
         : "";
     document.getElementById("resultSource").textContent = source;
+}
+
+let breakdownModalInstance = null;
+
+function revealBreakdown() {
+    if (breakdownModalInstance) {
+        breakdownModalInstance.show();
+    }
+}
+
+/* ---- Modal helper alerts (Bootstrap-dismissible) ------------------- */
+
+function showModalAlert(message, type) {
+    clearModalAlert();
+    const box = document.getElementById("modalAlert");
+    box.innerHTML =
+        `<div class="alert alert-${type} alert-dismissible fade show" role="alert">` +
+        `${message}` +
+        `<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>` +
+        `</div>`;
+}
+
+function clearModalAlert() {
+    document.getElementById("modalAlert").innerHTML = "";
 }
 
 async function fetchJson(url) {
@@ -123,6 +134,212 @@ function updateDiscountHint() {
         discount > 0
             ? `This passenger type qualifies for a ${discount}% discount.`
             : "No discount applies for this passenger type.";
+}
+
+/* =====================================================================
+ * Distance gating
+ * "Calculate Your Fare" stays disabled until a valid distance exists.
+ * The distance comes from the OSRM route automatically; the field lives
+ * inside the modal and may be edited as a fallback.
+ * ===================================================================== */
+
+function updateDistanceUi() {
+    const input = document.getElementById("distance");
+    const raw = input.value;
+    const value = Number(raw);
+    const hasDistance = raw !== "" && Number.isFinite(value) && value > 0;
+
+    const calculateBtn = document.getElementById("calculateBtn");
+    calculateBtn.disabled = !hasDistance;
+
+    const openBtn = document.getElementById("openCalculateBtn");
+    if (openBtn) {
+        openBtn.disabled = !hasDistance;
+    }
+
+    const hint = document.getElementById("distanceHint");
+    hint.textContent = hasDistance
+        ? "Distance is auto-filled from your route. You can adjust it if needed."
+        : "Please select a starting point and destination first to calculate a route.";
+}
+
+/* =====================================================================
+ * Dynamic Rate Panel + live preview
+ * Shows the current active fare structure for the selected transport and
+ * an interactive distance-based estimate (computed server-side, unsaved).
+ * ===================================================================== */
+
+function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value || "";
+    return div.innerHTML;
+}
+
+const ROUNDING_LABELS = {
+    round_up_025: "Rounded up to the next ₱0.25",
+    round_up_1: "Rounded up to the next whole peso",
+    round_2: "Standard two-decimal rounding",
+};
+
+function rateSentence(rate) {
+    if (rate.fare_method === "base_succeeding") {
+        let text =
+            `${currency.format(rate.base_fare)} for the first ` +
+            `${Number(rate.base_distance).toFixed(0)} km`;
+        if (rate.succeeding_rate != null) {
+            text += `, then ${currency.format(rate.succeeding_rate)} per succeeding km`;
+        }
+        return text;
+    }
+    let text = rate.per_km_rate != null ? `${currency.format(rate.per_km_rate)} per kilometer` : "";
+    if (rate.minimum_fare != null) {
+        text += ` (minimum ${currency.format(rate.minimum_fare)})`;
+    }
+    return text;
+}
+
+function formatRateDate(iso) {
+    if (!iso) {
+        return "—";
+    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+        return iso;
+    }
+    return date.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+    });
+}
+
+function renderRatePanel(rate) {
+    const body = document.getElementById("ratePanelBody");
+    const rows = [`<p class="mb-1 fw-bold">${escapeHtml(rate.transport_name)}</p>`];
+    if (rate.transport_description) {
+        rows.push(
+            `<p class="text-muted mb-2 small">${escapeHtml(rate.transport_description)}</p>`
+        );
+    }
+    rows.push(`<p class="mb-2">${escapeHtml(rateSentence(rate))}</p>`);
+
+    const defs = [];
+    const addRow = (label, value) =>
+        defs.push(`<dt class="col-5">${label}</dt><dd class="col-7">${value}</dd>`);
+
+    if (rate.fare_method === "base_succeeding") {
+        addRow("Base distance", `${Number(rate.base_distance).toFixed(0)} km`);
+        addRow("Base fare", currency.format(rate.base_fare));
+        if (rate.succeeding_rate != null) {
+            addRow("Succeeding rate", `${currency.format(rate.succeeding_rate)}/km`);
+        }
+    } else if (rate.per_km_rate != null) {
+        addRow("Per kilometer", currency.format(rate.per_km_rate));
+    }
+    if (rate.minimum_fare != null) {
+        addRow("Minimum fare", currency.format(rate.minimum_fare));
+    }
+    if (rate.maximum_fare != null) {
+        addRow("Maximum fare", currency.format(rate.maximum_fare));
+    }
+    addRow("Rounding", ROUNDING_LABELS[rate.rounding_rule] || rate.rounding_rule);
+    addRow("Effective", formatRateDate(rate.effective_date));
+    if (rate.source_reference) {
+        addRow("Reference", escapeHtml(rate.source_reference));
+    }
+
+    rows.push(`<dl class="row small mb-0">${defs.join("")}</dl>`);
+    body.innerHTML = rows.join("");
+}
+
+async function refreshRatePanel() {
+    const body = document.getElementById("ratePanelBody");
+    const transportId = document.getElementById("transportType").value;
+    if (!transportId) {
+        body.textContent =
+            "Select a transportation type to see its current fare structure.";
+        setPreview("");
+        return;
+    }
+    body.innerHTML =
+        `<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>` +
+        `Loading rate…`;
+    try {
+        renderRatePanel(await fetchJson(API.rate(transportId)));
+    } catch (error) {
+        body.textContent =
+            (error && error.message) ||
+            "The current fare rate is temporarily unavailable.";
+    }
+}
+
+/* ---- Live rate preview (debounced, unsaved) ------------------------ */
+
+let previewTimer = null;
+let previewAbort = null;
+
+function setPreview(html) {
+    const el = document.getElementById("ratePreview");
+    if (!el) {
+        return;
+    }
+    el.classList.toggle("d-none", !html);
+    el.innerHTML = html || "";
+}
+
+function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(runPreview, 300);
+}
+
+async function runPreview() {
+    const transportId = document.getElementById("transportType").value;
+    const passengerId = document.getElementById("passengerType").value;
+    const raw = document.getElementById("distance").value;
+    const distance = Number(raw);
+
+    if (!transportId || !passengerId || raw === "" || !Number.isFinite(distance) || distance <= 0) {
+        setPreview("");
+        return;
+    }
+
+    if (previewAbort) {
+        previewAbort.abort();
+    }
+    previewAbort = new AbortController();
+    try {
+        const response = await fetch(API.farePreview, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                transport_type_id: Number(transportId),
+                passenger_type_id: Number(passengerId),
+                distance,
+            }),
+            signal: previewAbort.signal,
+        });
+        const data = await response.json();
+        if (!data.success) {
+            setPreview("");
+            return;
+        }
+        const calc = data.result;
+        let label = `Estimated fare for <strong>${Number(calc.distance_km).toFixed(2)} km</strong>: `;
+        label += currency.format(calc.final_fare);
+        if (calc.discount_percentage > 0) {
+            label +=
+                ` <span class="text-muted">(regular ${currency.format(calc.regular_fare)} ` +
+                `with ${Number(calc.discount_percentage).toFixed(0)}% discount)</span>`;
+        }
+        setPreview(label);
+    } catch (error) {
+        if (error && error.name === "AbortError") {
+            return;
+        }
+        setPreview("");
+    } finally {
+        previewAbort = null;
+    }
 }
 
 const routeData = new Map();
@@ -168,11 +385,15 @@ function applyRoute(routeId) {
         (option) => option.value === String(route.transport_type_id)
     );
     if (!transportOption) {
-        showAlert("The transportation type for this route is not available.", "warning");
+        showModalAlert("The transportation type for this route is not available.", "warning");
         return;
     }
     transportSelect.value = String(route.transport_type_id);
-    document.getElementById("distance").value = Number(route.distance_km).toFixed(2);
+    const distanceInput = document.getElementById("distance");
+    distanceInput.value = Number(route.distance_km).toFixed(2);
+    distanceInput.dispatchEvent(new Event("input", { bubbles: true }));
+    refreshRatePanel();
+    schedulePreview();
 }
 
 async function loadOptions() {
@@ -192,6 +413,9 @@ async function loadOptions() {
         populateRoutes(document.getElementById("routePreset"), routes);
         updateDiscountHint();
         applyUrlParams();
+        updateDistanceUi();
+        refreshRatePanel();
+        schedulePreview();
     } catch (error) {
         showAlert(
             "Unable to load the fare options. Please refresh the page.",
@@ -229,67 +453,64 @@ function applyUrlParams() {
             document.getElementById("distance").value = parsed.toFixed(2);
         }
     }
-}
 
-async function saveTrip() {
-    if (!lastResult) {
-        return;
-    }
-    const saveBtn = document.getElementById("saveTripBtn");
-    saveBtn.disabled = true;
-
-    try {
-        const response = await fetch(API.saveTrip, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                transport_type_id: lastResult.transport_type_id,
-                passenger_type_id: lastResult.passenger_type_id,
-                distance: lastResult.distance_km,
-            }),
-        });
-        const data = await response.json();
-
-        if (!data.success) {
-            showAlert(data.message || "Unable to save the trip.", "danger");
-            saveBtn.disabled = false;
-            return;
-        }
-        saveBtn.textContent = "Saved";
-        showAlert(
-            data.already_saved
-                ? "This trip is already saved on your dashboard."
-                : "Trip saved to your dashboard.",
-            "success"
-        );
-    } catch (error) {
-        showAlert("An unexpected error occurred while saving.", "danger");
-        saveBtn.disabled = false;
+    if (distance || transportId) {
+        clearModalAlert();
     }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
     loadOptions();
 
-    document.getElementById("routePreset").addEventListener("change", (event) => {
-        applyRoute(event.target.value);
+    const calculateModalEl = document.getElementById("calculateFareModal");
+    const calculateModal = calculateModalEl ? new bootstrap.Modal(calculateModalEl) : null;
+    const breakdownModalEl = document.getElementById("fareBreakdownModal");
+    breakdownModalInstance = breakdownModalEl ? new bootstrap.Modal(breakdownModalEl) : null;
+
+    // STEP 1: opening the modal requires a valid route distance first.
+    document.getElementById("openCalculateBtn").addEventListener("click", () => {
+        clearModalAlert();
+        if (calculateModal) {
+            calculateModal.show();
+        }
     });
 
-    document.getElementById("passengerType").addEventListener("change", updateDiscountHint);
+    const totalFareBox = document.getElementById("totalFareBox");
+    if (totalFareBox) {
+        totalFareBox.addEventListener("click", revealBreakdown);
+    }
 
-    document.getElementById("saveTripBtn").addEventListener("click", saveTrip);
+    document.getElementById("routePreset").addEventListener("change", (event) => {
+        applyRoute(event.target.value);
+        updateDistanceUi();
+    });
 
-    document.getElementById("fareForm").addEventListener("submit", async (event) => {
+    document.getElementById("transportType").addEventListener("change", () => {
+        refreshRatePanel();
+        schedulePreview();
+    });
+
+    document.getElementById("distance").addEventListener("input", () => {
+        updateDistanceUi();
+        schedulePreview();
+    });
+
+    document.getElementById("passengerType").addEventListener("change", () => {
+        updateDiscountHint();
+        schedulePreview();
+    });
+
+    document.getElementById("modalFareForm").addEventListener("submit", async (event) => {
         event.preventDefault();
-        clearAlert();
+        clearModalAlert();
 
         const transportId = document.getElementById("transportType").value;
         const passengerId = document.getElementById("passengerType").value;
         const distance = Number(document.getElementById("distance").value);
 
         if (!transportId || !passengerId || !Number.isFinite(distance) || distance <= 0) {
-            showAlert(
-                "Please select a transportation type and a passenger type, and enter a distance greater than zero.",
+            showModalAlert(
+                "Please select a transportation type and a passenger type, and enter a valid distance.",
                 "warning"
             );
             return;
@@ -297,24 +518,43 @@ document.addEventListener("DOMContentLoaded", () => {
 
         setLoading(true);
         try {
+            const body = {
+                transport_type_id: Number(transportId),
+                passenger_type_id: Number(passengerId),
+                distance,
+            };
+            // Attach map route metadata when the fare comes from a road route.
+            if (window.FareCalRouteData) {
+                Object.assign(body, window.FareCalRouteData);
+            }
             const response = await fetch(API.calculateFare, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    transport_type_id: Number(transportId),
-                    passenger_type_id: Number(passengerId),
-                    distance,
-                }),
+                body: JSON.stringify(body),
             });
             const data = await response.json();
 
             if (!data.success) {
-                showAlert(data.message || "Unable to calculate the fare. Please try again.", "danger");
+                showModalAlert(
+                    data.message ||
+                    "No active fare rate is available for the selected transportation type.",
+                    "danger"
+                );
                 return;
             }
             showResult(data.result);
+            if (calculateModal) {
+                calculateModal.hide();
+            }
+            showAlert(
+                "Fare calculated. Scroll down and choose “View Fare Breakdown” to see the full estimate.",
+                "success"
+            );
         } catch (error) {
-            showAlert("An unexpected error occurred. Please try again.", "danger");
+            showModalAlert(
+                "An unexpected error occurred while calculating the fare. Please try again.",
+                "danger"
+            );
         } finally {
             setLoading(false);
         }

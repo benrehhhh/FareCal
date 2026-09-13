@@ -10,59 +10,6 @@ CREATE DATABASE IF NOT EXISTS farecal_db
 USE farecal_db;
 
 -- -------------------------------------------------------------------
--- users
--- -------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS users (
-    id            INT UNSIGNED     NOT NULL AUTO_INCREMENT,
-    name          VARCHAR(100)     NOT NULL,
-    email         VARCHAR(150)     NOT NULL,
-    password_hash VARCHAR(255)     NOT NULL,
-    role          ENUM('user', 'admin') NOT NULL DEFAULT 'user',
-    status        ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-    created_at    DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP
-                                   ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_users_email (email)
-) ENGINE = InnoDB;
-
--- -------------------------------------------------------------------
--- login_attempts  (powers login throttling)
--- Failed attempts are counted per email + IP within a rolling window.
--- A successful login clears the recorded failures for that key.
--- -------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS login_attempts (
-    id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    email        VARCHAR(150) NOT NULL,
-    ip_address   VARCHAR(45)  NOT NULL DEFAULT '',
-    success      TINYINT(1)   NOT NULL DEFAULT 0,
-    attempted_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    KEY idx_login_attempts_email_ip_time (email, ip_address, attempted_at)
-) ENGINE = InnoDB;
-
--- -------------------------------------------------------------------
--- audit_log  (significant security/admin events, e.g. account actions)
--- user_id is the actor (NULL when the action happened without a session)
--- -------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS audit_log (
-    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id     INT UNSIGNED NULL,
-    action      VARCHAR(60)  NOT NULL,
-    target_type VARCHAR(40)  NULL,
-    target_id   VARCHAR(40)  NULL,
-    details     VARCHAR(255) NULL,
-    ip_address  VARCHAR(45)  NOT NULL DEFAULT '',
-    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    KEY idx_audit_log_created (created_at),
-    KEY idx_audit_log_user (user_id),
-    CONSTRAINT fk_audit_log_user
-        FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE SET NULL
-) ENGINE = InnoDB;
-
--- -------------------------------------------------------------------
 -- transport_types
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transport_types (
@@ -129,11 +76,9 @@ CREATE TABLE IF NOT EXISTS passenger_types (
 
 -- -------------------------------------------------------------------
 -- fare_calculations  (calculation history)
--- user_id is nullable so guests can calculate without an account.
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS fare_calculations (
     id                   INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id              INT UNSIGNED NULL,
     transport_type_id    INT UNSIGNED NOT NULL,
     passenger_type_id    INT UNSIGNED NOT NULL,
     distance             DECIMAL(10, 2) NOT NULL,
@@ -141,13 +86,16 @@ CREATE TABLE IF NOT EXISTS fare_calculations (
     discount_percentage  DECIMAL(5, 2) NOT NULL DEFAULT 0,
     discount_amount      DECIMAL(10, 2) NOT NULL DEFAULT 0,
     final_fare           DECIMAL(10, 2) NOT NULL,
+    origin_name          VARCHAR(100) NULL,
+    destination_name     VARCHAR(100) NULL,
+    origin_latitude      DECIMAL(10, 7) NULL,
+    origin_longitude     DECIMAL(10, 7) NULL,
+    destination_latitude DECIMAL(10, 7) NULL,
+    destination_longitude DECIMAL(10, 7) NULL,
+    estimated_duration   INT UNSIGNED NULL,
     calculated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_fare_calculations_user (user_id),
     KEY idx_fare_calculations_date (calculated_at),
-    CONSTRAINT fk_fare_calculations_user
-        FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE SET NULL,
     CONSTRAINT fk_fare_calculations_transport_type
         FOREIGN KEY (transport_type_id) REFERENCES transport_types (id),
     CONSTRAINT fk_fare_calculations_passenger_type
@@ -173,32 +121,6 @@ CREATE TABLE IF NOT EXISTS routes (
     CONSTRAINT fk_routes_transport_type
         FOREIGN KEY (transport_type_id) REFERENCES transport_types (id)
         ON DELETE CASCADE
-) ENGINE = InnoDB;
-
--- -------------------------------------------------------------------
--- saved_trips  (a logged-in user's bookmarked fare estimates)
--- Snapshot amounts are stored so the list keeps working even when a
--- fare rate later changes.
--- -------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS saved_trips (
-    id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id           INT UNSIGNED NOT NULL,
-    transport_type_id INT UNSIGNED NOT NULL,
-    passenger_type_id INT UNSIGNED NOT NULL,
-    distance_km       DECIMAL(10, 2) NOT NULL,
-    regular_fare      DECIMAL(10, 2) NOT NULL,
-    discount_amount   DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
-    final_fare        DECIMAL(10, 2) NOT NULL,
-    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    KEY idx_saved_trips_user (user_id),
-    CONSTRAINT fk_saved_trips_user
-        FOREIGN KEY (user_id) REFERENCES users (id)
-        ON DELETE CASCADE,
-    CONSTRAINT fk_saved_trips_transport_type
-        FOREIGN KEY (transport_type_id) REFERENCES transport_types (id),
-    CONSTRAINT fk_saved_trips_passenger_type
-        FOREIGN KEY (passenger_type_id) REFERENCES passenger_types (id)
 ) ENGINE = InnoDB;
 
 -- ===================================================================

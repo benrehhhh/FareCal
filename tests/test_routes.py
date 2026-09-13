@@ -1,25 +1,18 @@
 """Integration tests for the FareCal Flask routes.
 
-Requires a running MySQL (see .env) — the tests exercise the real
-`farecal_db`. Every test cleans up the temporary records it creates, so the
-suite is safe to run repeatedly.
+FareCal is a calculator-only app — no accounts, no admin, no saved trips.
+These tests cover the homepage render and the fare API surface only, and
+clean up the guest calculation rows they create.
 
-Run from the project root:
+Requires a running MySQL (see .env) — the tests exercise the real
+`farecal_db`. Run from the project root:
     python -m unittest discover -s tests -v
 """
 
 import unittest
 
-from werkzeug.security import generate_password_hash
-
 from app import app
 from database.connection import get_connection
-
-TEMP_USER = "it-user@farecal.ph"
-TEMP_PASSWORD = "password1234"
-LOCK_USER = "it-lock@farecal.ph"
-ADMIN_EMAIL = "admin@farecal.ph"
-ADMIN_PASSWORD = "admin123"
 
 
 class RouteTestCase(unittest.TestCase):
@@ -32,73 +25,13 @@ class RouteTestCase(unittest.TestCase):
 
     # ------------------------------------------------------------ helpers
     def _cleanup(self):
-        """Remove every temporary record this suite may have created."""
+        """Remove guest fare_calculations rows created by this suite."""
         conn = get_connection()
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM fare_calculations WHERE user_id IN "
-                "(SELECT id FROM users WHERE email = %s)",
-                (TEMP_USER,),
-            )
-            cur.execute(
-                "DELETE st FROM saved_trips st JOIN users u ON u.id = st.user_id "
-                "WHERE u.email IN (%s, %s)",
-                (TEMP_USER, LOCK_USER),
-            )
-            cur.execute(
-                "DELETE FROM login_attempts WHERE email IN (%s, %s)",
-                (TEMP_USER, LOCK_USER),
-            )
-            cur.execute(
-                "DELETE FROM audit_log WHERE user_id IN "
-                "(SELECT id FROM users WHERE email IN (%s, %s)) "
-                "OR details LIKE %s OR details LIKE %s "
-                "OR details LIKE %s OR details LIKE %s",
-                (TEMP_USER, LOCK_USER, "IT TEST %", "IT PASS %",
-                 "it-user@%", "it-lock@%"),
-            )
-            cur.execute(
-                "DELETE FROM users WHERE email IN (%s, %s)",
-                (TEMP_USER, LOCK_USER),
-            )
-            cur.execute(
-                "DELETE FROM fare_calculations WHERE transport_type_id IN "
-                "(SELECT id FROM transport_types WHERE name LIKE 'IT TEST %%')"
-            )
-            cur.execute("DELETE FROM transport_types WHERE name LIKE 'IT TEST %%'")
-            cur.execute("DELETE FROM passenger_types WHERE name LIKE 'IT PASS %%'")
-            cur.execute(
-                "DELETE FROM routes WHERE origin LIKE 'IT TEST %%' "
-                "OR destination LIKE 'IT TEST %%'"
+                "DELETE FROM fare_calculations WHERE origin_name LIKE 'IT TEST %'"
             )
         conn.close()
-
-    def _csrf(self, page):
-        """GET a page that renders a CSRF hidden input, then return its token."""
-        self.client.get(page)
-        with self.client.session_transaction() as sess:
-            return sess["_csrf_token"]
-
-    def _post(self, url, data, token_page):
-        """POST an HTML form with a CSRF token (token seeded from token_page)."""
-        payload = dict(data)
-        payload["_csrf_token"] = self._csrf(token_page)
-        return self.client.post(url, data=payload)
-
-    def _login(self, email, password):
-        return self._post("/login", {"email": email, "password": password}, "/login")
-
-    def _login_as_temp_user(self):
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO users (name, email, password_hash, role) "
-                "VALUES (%s, %s, %s, 'user')",
-                ("IT User", TEMP_USER, generate_password_hash(TEMP_PASSWORD)),
-            )
-        conn.close()
-        response = self._login(TEMP_USER, TEMP_PASSWORD)
-        self.assertEqual(response.status_code, 302)
 
     def _active_ids(self):
         """Return a (transport_type_id, passenger_type_id) pair from the seed."""
@@ -117,73 +50,88 @@ class RouteTestCase(unittest.TestCase):
         finally:
             conn.close()
 
-    # ------------------------------------------------------- public pages
+    def _calc_payload(self, t, p, distance=5, **overrides):
+        payload = {
+            "transport_type_id": t,
+            "passenger_type_id": p,
+            "distance": distance,
+            "origin_name": "IT TEST Origin",
+            "destination_name": "IT TEST Destination",
+        }
+        payload.update(overrides)
+        return payload
+
+    # --------------------------------------------------------- home page
     def test_index_renders_calculator(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Fare Calculator", response.get_data(as_text=True))
 
-    def test_login_and_register_pages_render(self):
-        for path in ("/login", "/register"):
+    def test_index_renders_breakdown_modal_and_total_box(self):
+        body = self.client.get("/").get_data(as_text=True)
+        self.assertIn('id="fareBreakdownModal"', body)
+        self.assertIn('id="totalFareBox"', body)
+        self.assertNotIn('id="resultPanel"', body)
+        self.assertNotIn("Coming in the next update", body)
+
+    def test_home_is_calculator_only_nav(self):
+        body = self.client.get("/").get_data(as_text=True)
+        # Brand bar only: no account dropdown, no guest links, no admin badge.
+        self.assertIn('href="/">', body)
+        self.assertIn("FareCal", body)
+        self.assertNotIn('id="navMenuButton"', body)
+        self.assertNotIn('id="navMenuDropdown"', body)
+        self.assertNotIn("Administration", body)
+        self.assertNotIn("text-bg-warning", body)
+        self.assertNotIn(">Logout<", body)
+        self.assertNotIn(">Register<", body)
+        self.assertNotIn('href="/fares"', body)
+        # Calculator scaffolding is present.
+        self.assertIn('id="calculateFareModal"', body)
+        self.assertIn('id="openCalculateBtn"', body)
+        self.assertIn("Calculate Your Fare", body)
+        self.assertNotIn('id="fareForm"', body)
+
+    def test_breakdown_modal_has_no_save_or_print_actions(self):
+        body = self.client.get("/").get_data(as_text=True)
+        self.assertNotIn("Save this trip", body)
+        self.assertNotIn("Print estimate", body)
+        self.assertNotIn("window.print", body)
+        self.assertNotIn('id="saveTripBtn"', body)
+        self.assertNotIn('id="viewBreakdownBtn"', body)
+        self.assertNotIn('id="currentFareModal"', body)
+
+    def test_removed_pages_return_404(self):
+        for path in (
+            "/login",
+            "/register",
+            "/dashboard",
+            "/history",
+            "/history/export",
+            "/account",
+            "/fares",
+            "/admin",
+            "/admin/users",
+            "/admin/transport-types",
+            "/admin/fare-rates",
+            "/admin/passenger-types",
+            "/admin/routes",
+            "/admin/calculations",
+            "/admin/audit",
+            "/api/saved-trips",
+        ):
             response = self.client.get(path)
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 404, path)
 
-    # ------------------------------------------------------------ auth
-    def test_register_validates_and_logs_in_fresh_user(self):
-        response = self._post(
-            "/register",
-            {"name": "IT User", "email": TEMP_USER,
-             "password": TEMP_PASSWORD, "confirm_password": TEMP_PASSWORD},
-            "/register",
-        )
-        self.assertEqual(response.status_code, 302)
-        response = self._login(TEMP_USER, TEMP_PASSWORD)
-        self.assertEqual(response.status_code, 302)
-
-    def test_register_rejects_wrong_confirmation(self):
-        response = self._post(
-            "/register",
-            {"name": "IT User", "email": TEMP_USER,
-             "password": TEMP_PASSWORD, "confirm_password": "different99"},
-            "/register",
-        )
+    def test_favicon_is_bus_icon(self):
+        response = self.client.get("/static/favicon.svg")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("do not match", response.get_data(as_text=True).lower())
-
-    def test_register_rejects_duplicate_email(self):
-        self._login_as_temp_user()
-        self._post("/logout", {}, "/account")
-        response = self._post(
-            "/register",
-            {"name": "IT User 2", "email": TEMP_USER,
-             "password": TEMP_PASSWORD, "confirm_password": TEMP_PASSWORD},
-            "/register",
-        )
         body = response.get_data(as_text=True)
-        self.assertIn("already registered", body)
+        self.assertIn('viewBox="0 0 64 64"', body)
+        self.assertIn('stroke="#ffffff"', body)
+        self.assertNotIn("text", body)
 
-    def test_login_rejects_wrong_password(self):
-        self._login_as_temp_user()
-        self._post("/logout", {}, "/account")
-        response = self._login(TEMP_USER, "wrongpassword")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Invalid email or password", response.get_data(as_text=True))
-
-    def test_login_sets_session_and_logout_clears_it(self):
-        self._login_as_temp_user()
-        with self.client.session_transaction() as sess:
-            self.assertIsNotNone(sess.get("user_id"))
-        self.assertEqual(self.client.get("/dashboard").status_code, 200)
-
-        self._post("/logout", {}, "/account")
-        with self.client.session_transaction() as sess:
-            self.assertIsNone(sess.get("user_id"))
-
-    def test_html_forms_require_csrf_token(self):
-        response = self.client.post("/login", data={"email": TEMP_USER, "password": TEMP_PASSWORD})
-        self.assertEqual(response.status_code, 400)
-
-    # ------------------------------------------------------------- APIs
+    # -------------------------------------------------------------- APIs
     def test_api_transport_types(self):
         response = self.client.get("/api/transport-types")
         self.assertEqual(response.status_code, 200)
@@ -194,221 +142,137 @@ class RouteTestCase(unittest.TestCase):
         response = self.client.get("/api/passenger-types")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["success"])
+        self.assertGreater(len(response.get_json()["result"]), 0)
 
     def test_api_calculate_fare_valid(self):
-        self._login_as_temp_user()  # so the saved calculation is cleaned up
         t, p = self._active_ids()
         response = self.client.post(
             "/api/calculate-fare",
-            json={"transport_type_id": t, "passenger_type_id": p, "distance": 5},
+            json=self._calc_payload(t, p, distance=5),
         )
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertTrue(data["success"])
         self.assertGreater(data["result"]["final_fare"], 0)
 
-    def test_api_calculate_fare_rejects_invalid_distance(self):
-        self._login_as_temp_user()
+    def test_api_calculate_fare_stores_route_metadata(self):
         t, p = self._active_ids()
         response = self.client.post(
             "/api/calculate-fare",
-            json={"transport_type_id": t, "passenger_type_id": p, "distance": -1},
+            json=self._calc_payload(
+                t,
+                p,
+                distance=5,
+                origin_name="IT TEST Origin",
+                destination_name="IT TEST Destination",
+                origin_latitude=10.31179,
+                origin_longitude=123.91867,
+                destination_latitude=10.3154,
+                destination_longitude=123.8951,
+                estimated_duration=570,
+            ),
+        )
+        self.assertEqual(response.status_code, 200)
+        calc_id = response.get_json()["result"]["calculation_id"]
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT origin_name, destination_name,
+                           origin_latitude, origin_longitude,
+                           destination_latitude, destination_longitude,
+                           estimated_duration
+                    FROM fare_calculations
+                    WHERE id = %s
+                    """,
+                    (calc_id,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["origin_name"], "IT TEST Origin")
+        self.assertEqual(row["destination_name"], "IT TEST Destination")
+        self.assertAlmostEqual(float(row["origin_latitude"]), 10.31179, places=5)
+        self.assertAlmostEqual(float(row["origin_longitude"]), 123.91867, places=5)
+        self.assertAlmostEqual(float(row["destination_latitude"]), 10.3154, places=5)
+        self.assertAlmostEqual(float(row["destination_longitude"]), 123.8951, places=5)
+        self.assertEqual(row["estimated_duration"], 570)
+
+    def test_api_calculate_fare_rejects_invalid_coordinates(self):
+        t, p = self._active_ids()
+        response = self.client.post(
+            "/api/calculate-fare",
+            json=self._calc_payload(t, p, origin_latitude=95, origin_longitude=200),
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_api_calculate_fare_rejects_invalid_distance(self):
+        t, p = self._active_ids()
+        response = self.client.post(
+            "/api/calculate-fare",
+            json=self._calc_payload(t, p, distance=-1),
         )
         self.assertEqual(response.status_code, 400)
 
     def test_api_calculate_fare_rejects_unknown_transport(self):
-        self._login_as_temp_user()
         _, p = self._active_ids()
         response = self.client.post(
             "/api/calculate-fare",
-            json={"transport_type_id": 999999, "passenger_type_id": p, "distance": 5},
+            json=self._calc_payload(999999, p, distance=5),
         )
         self.assertEqual(response.status_code, 400)
 
-    # ------------------------------------------------ access control
-    def test_protected_pages_require_login(self):
-        for path in ("/dashboard", "/history", "/account", "/history/export"):
-            response = self.client.get(path)
-            self.assertEqual(response.status_code, 302, path)
-
-    def test_admin_pages_block_regular_users(self):
-        self._login_as_temp_user()
-        for path in ("/admin", "/admin/users", "/admin/transport-types",
-                     "/admin/fare-rates", "/admin/passenger-types", "/admin/calculations"):
-            response = self.client.get(path)
-            self.assertEqual(response.status_code, 403, path)
-
-    def test_admin_pages_allow_admin(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-        for path in ("/admin", "/admin/users", "/admin/transport-types",
-                     "/admin/fare-rates", "/admin/passenger-types", "/admin/calculations"):
-            response = self.client.get(path)
-            self.assertEqual(response.status_code, 200, path)
-
-    # ---------------------------------------------------------- admin
-    def test_admin_can_toggle_user(self):
-        self._login_as_temp_user()
-        self._post("/logout", {}, "/account")
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id, status FROM users WHERE email = %s", (TEMP_USER,))
-                row = cur.fetchone()
-                user_id, status = row["id"], row["status"]
-        finally:
-            conn.close()
-        self.assertEqual(status, "active")
-
-        self._post(f"/admin/users/{user_id}/toggle", {}, "/admin/users")
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT status FROM users WHERE id = %s", (user_id,))
-                self.assertEqual(cur.fetchone()["status"], "inactive")
-        finally:
-            conn.close()
-
-    def test_admin_can_delete_user(self):
-        self._login_as_temp_user()
-        self._post("/logout", {}, "/account")
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE email = %s", (TEMP_USER,))
-                user_id = cur.fetchone()["id"]
-        finally:
-            conn.close()
-
-        self._post(f"/admin/users/{user_id}/delete", {}, "/admin/users")
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
-                self.assertIsNone(cur.fetchone())
-        finally:
-            conn.close()
-
-    def test_admin_add_and_edit_statuses_transport_type(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-
-        # Add
-        self._post(
-            "/admin/transport-types",
-            {"name": "IT TEST Bus", "description": "added by integration test"},
-            "/admin/transport-types",
-        )
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM transport_types WHERE name = 'IT TEST Bus'")
-                tt_id = cur.fetchone()["id"]
-        finally:
-            conn.close()
-
-        # Duplicate add warns
-        self._post(
-            "/admin/transport-types",
-            {"name": "IT TEST Bus", "description": ""},
-            "/admin/transport-types",
-        )
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) c FROM transport_types WHERE name = 'IT TEST Bus'")
-                self.assertEqual(cur.fetchone()["c"], 1)
-        finally:
-            conn.close()
-
-        # Toggle then delete
-        self._post(f"/admin/transport-types/{tt_id}/toggle", {}, "/admin/transport-types")
-        self._post(f"/admin/transport-types/{tt_id}/delete", {}, "/admin/transport-types")
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM transport_types WHERE id = %s", (tt_id,))
-                self.assertIsNone(cur.fetchone())
-        finally:
-            conn.close()
-
-    def test_admin_cannot_delete_referenced_transport(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO transport_types (name) VALUES ('IT TEST Guard')"
-                )
-                tt_id = cur.lastrowid
-                cur.execute(
-                    "INSERT INTO fare_calculations (user_id, transport_type_id, "
-                    "passenger_type_id, distance, regular_fare, final_fare) "
-                    "VALUES (NULL, %s, 1, 3.0, 13.0, 13.0)",
-                    (tt_id,),
-                )
-        finally:
-            conn.close()
-
-        self._post(f"/admin/transport-types/{tt_id}/delete", {}, "/admin/transport-types")
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM transport_types WHERE id = %s", (tt_id,))
-                self.assertIsNotNone(cur.fetchone())  # blocked, still present
-        finally:
-            conn.close()
-        # tearDown cleanup removes the calc + transport
-
-    # ------------------------------------------------------ account
-    def test_account_change_password(self):
-        self._login_as_temp_user()
-
-        self._post(
-            "/account/change-password",
-            {"current_password": TEMP_PASSWORD,
-             "new_password": "newpass99", "confirm_password": "newpass99"},
-            "/account",
-        )
-        self._post("/logout", {}, "/account")
-        response = self._login(TEMP_USER, "newpass99")
-        self.assertEqual(response.status_code, 302)
-
-    def test_account_delete_requires_action(self):
-        self._login_as_temp_user()
-        self._post("/account/delete", {}, "/account")
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE email = %s", (TEMP_USER,))
-                self.assertIsNone(cur.fetchone())
-        finally:
-            conn.close()
-        with self.client.session_transaction() as sess:
-            self.assertIsNone(sess.get("user_id"))
-
-    def test_admin_cannot_delete_own_account(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-        self._post("/account/delete", {}, "/account")
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE email = %s", (ADMIN_EMAIL,))
-                self.assertIsNotNone(cur.fetchone())
-        finally:
-            conn.close()
-
-    # ------------------------------------------------- public pages
-    def test_fares_page_renders(self):
-        response = self.client.get("/fares")
-        body = response.get_data(as_text=True)
+    def test_api_transport_rate_valid(self):
+        t, _ = self._active_ids()
+        response = self.client.get(f"/api/transport-types/{t}/rate")
         self.assertEqual(response.status_code, 200)
-        for name in ("Traditional PUJ", "Modernized PUJ", "Bus", "Taxi"):
-            self.assertIn(name, body)
-        self.assertIn("LTFRB", body)
+        rate = response.get_json()["result"]
+        self.assertEqual(rate["transport_type_id"], t)
+        self.assertIn(rate["fare_method"], ("base_succeeding", "per_km"))
+        self.assertIsInstance(rate["base_fare"], float)
+        self.assertIsInstance(rate["rounding_rule"], str)
+        self.assertTrue(rate["effective_date"])
+        self.assertTrue(rate["transport_name"])
+
+    def test_api_transport_rate_unknown_transport(self):
+        response = self.client.get("/api/transport-types/999999/rate")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.get_json()["success"])
+
+    def test_api_fare_preview_computes_without_history(self):
+        t, p = self._active_ids()
+
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS c FROM fare_calculations")
+            before = cur.fetchone()["c"]
+
+        response = self.client.post(
+            "/api/fare-preview",
+            json={"transport_type_id": t, "passenger_type_id": p, "distance": 5},
+        )
+        self.assertEqual(response.status_code, 200)
+        result = response.get_json()["result"]
+        self.assertNotIn("calculation_id", result)
+        self.assertGreater(result["final_fare"], 0)
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS c FROM fare_calculations")
+            after = cur.fetchone()["c"]
+        conn.close()
+        self.assertEqual(after, before)
+
+    def test_api_fare_preview_rejects_invalid_distance(self):
+        t, p = self._active_ids()
+        response = self.client.post(
+            "/api/fare-preview",
+            json={"transport_type_id": t, "passenger_type_id": p, "distance": -1},
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_api_routes_endpoint(self):
         data = self.client.get("/api/routes").get_json()
@@ -423,326 +287,6 @@ class RouteTestCase(unittest.TestCase):
         )
 
         self.assertEqual(self.client.get("/api/routes?transport_id=abc").status_code, 400)
-
-    # ------------------------------------------------------ account
-    def test_account_page_renders(self):
-        self._login_as_temp_user()
-        body = self.client.get("/account").get_data(as_text=True)
-        self.assertEqual(self.client.get("/account").status_code, 200)
-        self.assertIn("Change Password", body)
-
-    # ------------------------------------------------- history/export
-    def test_history_search_and_export(self):
-        self._login_as_temp_user()
-
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE email = %s", (TEMP_USER,))
-                uid = cur.fetchone()["id"]
-                cur.execute(
-                    "SELECT id FROM transport_types WHERE status='active' "
-                    "ORDER BY id LIMIT 2"
-                )
-                t1, t2 = [row["id"] for row in cur.fetchall()]
-                _, passenger_id = self._active_ids()
-                cur.execute(
-                    "SELECT name FROM transport_types WHERE id = %s", (t1,)
-                )
-                t1_name = cur.fetchone()["name"]
-                for t in (t1, t2):
-                    cur.execute(
-                        "INSERT INTO fare_calculations "
-                        "(user_id, transport_type_id, passenger_type_id, distance, "
-                        "regular_fare, final_fare) VALUES (%s, %s, %s, 5.0, 20.0, 20.0)",
-                        (uid, t, passenger_id),
-                    )
-        finally:
-            conn.close()
-
-        # Site search filters by transport name.
-        filter_term = t1_name.split()[0]
-        html = self.client.get(f"/history?q={filter_term}").get_data(as_text=True)
-        self.assertIn(t1_name, html)
-
-        # CSV export lists both rows, honors the search filter, and is public-URL safe.
-        body = self.client.get("/history/export").get_data(as_text=True)
-        self.assertEqual(200, self.client.get("/history/export").status_code)
-        self.assertIn("Transport", body.splitlines()[0])
-        self.assertEqual(len(body.splitlines()) - 1, 2)
-
-        one = self.client.get(f"/history/export?q={filter_term}").get_data(as_text=True)
-        self.assertEqual(len(one.splitlines()) - 1, 1)
-
-        self._post("/logout", {}, "/account")
-        self.assertEqual(self.client.get("/history/export").status_code, 302)
-
-    # ------------------------------------------------------ admin routes
-    def test_admin_routes_page_requires_admin(self):
-        self.assertEqual(self.client.get("/admin/routes").status_code, 302)
-        self._login_as_temp_user()
-        self.assertEqual(self.client.get("/admin/routes").status_code, 403)
-
-    def test_admin_routes_crud(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-        transport_id = self._active_ids()[0]
-
-        self._post(
-            "/admin/routes",
-            {"transport_type_id": str(transport_id),
-             "origin": "IT TEST One", "destination": "IT TEST Two",
-             "distance_km": "4.75"},
-            "/admin/routes",
-        )
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id FROM routes WHERE origin='IT TEST One' "
-                    "AND destination='IT TEST Two'"
-                )
-                route_id = cur.fetchone()["id"]
-        finally:
-            conn.close()
-
-        self._post(f"/admin/routes/{route_id}/toggle", {}, "/admin/routes")
-        self._post(f"/admin/routes/{route_id}/delete", {}, "/admin/routes")
-
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM routes WHERE id = %s", (route_id,))
-                self.assertIsNone(cur.fetchone())
-        finally:
-            conn.close()
-
-    # -------------------------------------------------- M15: admin editing
-    def test_admin_edit_transport_type(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-        self._post(
-            "/admin/transport-types",
-            {"name": "IT TEST Editable", "description": ""},
-            "/admin/transport-types",
-        )
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM transport_types WHERE name='IT TEST Editable'")
-                tt_id = cur.fetchone()["id"]
-        finally:
-            conn.close()
-
-        body = self.client.get(f"/admin/transport-types/{tt_id}/edit")
-        self.assertEqual(body.status_code, 200)
-        self.assertIn("IT TEST Editable", body.get_data(as_text=True))
-
-        self._post(
-            f"/admin/transport-types/{tt_id}/edit",
-            {"name": "IT TEST Renamed", "description": "updated by test"},
-            f"/admin/transport-types/{tt_id}/edit",
-        )
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT name, description FROM transport_types WHERE id=%s",
-                    (tt_id,),
-                )
-                row = cur.fetchone()
-        finally:
-            conn.close()
-        self.assertEqual(row["name"], "IT TEST Renamed")
-        self.assertEqual(row["description"], "updated by test")
-
-    def test_admin_edit_passenger_type(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO passenger_types (name, discount_percentage) "
-                    "VALUES ('IT PASS Edit', 10.00)",
-                )
-                pt_id = cur.lastrowid
-        finally:
-            conn.close()
-
-        self._post(
-            f"/admin/passenger-types/{pt_id}/edit",
-            {"name": "IT PASS Renamed", "discount_percentage": "25.00",
-             "description": "updated by test"},
-            f"/admin/passenger-types/{pt_id}/edit",
-        )
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT name, discount_percentage FROM passenger_types WHERE id=%s",
-                    (pt_id,),
-                )
-                row = cur.fetchone()
-        finally:
-            conn.close()
-        self.assertEqual(row["name"], "IT PASS Renamed")
-        self.assertEqual(float(row["discount_percentage"]), 25.00)
-
-    def test_admin_reset_password(self):
-        self._login_as_temp_user()
-        self._post("/logout", {}, "/account")
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE email=%s", (TEMP_USER,))
-                uid = cur.fetchone()["id"]
-        finally:
-            conn.close()
-
-        self._post(
-            f"/admin/users/{uid}/reset-password",
-            {"new_password": "brandnew99", "confirm_password": "brandnew99"},
-            f"/admin/users/{uid}/reset-password",
-        )
-        self._post("/logout", {}, "/account")
-        response = self._login(TEMP_USER, "brandnew99")
-        self.assertEqual(response.status_code, 302)
-
-    # ------------------------------------------- M16: saved trips + recalc
-    def test_saved_trip_save_dedupe_and_delete(self):
-        self._login_as_temp_user()
-        transport_id, passenger_id = self._active_ids()
-        payload = {"transport_type_id": transport_id,
-                   "passenger_type_id": passenger_id, "distance": 5}
-
-        data = self.client.post("/api/saved-trips", json=payload).get_json()
-        self.assertTrue(data["success"])
-        self.assertFalse(data["already_saved"])
-        trip_id = data["trip_id"]
-
-        duplicate = self.client.post("/api/saved-trips", json=payload).get_json()
-        self.assertTrue(duplicate["already_saved"])
-        self.assertEqual(duplicate["trip_id"], trip_id)
-
-        body = self.client.get("/dashboard").get_data(as_text=True)
-        self.assertIn("My Saved Trips", body)
-        self.assertIn(f"/saved-trips/{trip_id}/delete", body)
-
-        self._post(f"/saved-trips/{trip_id}/delete", {}, "/dashboard")
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) c FROM saved_trips WHERE id=%s", (trip_id,))
-                self.assertEqual(cur.fetchone()["c"], 0)
-        finally:
-            conn.close()
-
-    def test_saved_trip_requires_login(self):
-        transport_id, passenger_id = self._active_ids()
-        response = app.test_client().post(
-            "/api/saved-trips",
-            json={"transport_type_id": transport_id,
-                  "passenger_type_id": passenger_id, "distance": 5},
-        )
-        self.assertEqual(response.status_code, 401)
-
-    def test_saved_trip_rejects_invalid_distance(self):
-        self._login_as_temp_user()
-        transport_id, passenger_id = self._active_ids()
-        response = self.client.post(
-            "/api/saved-trips",
-            json={"transport_type_id": transport_id,
-                  "passenger_type_id": passenger_id, "distance": -1},
-        )
-        self.assertEqual(response.status_code, 400)
-
-    # -------------------------------------- M17: login lockout + audit log
-    def test_login_locked_after_repeated_failures(self):
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO users (name, email, password_hash, role) "
-                    "VALUES (%s, %s, %s, 'user')",
-                    ("IT Lock User", LOCK_USER, generate_password_hash("lockpass99")),
-                )
-        finally:
-            conn.close()
-
-        for _ in range(5):
-            response = self._post(
-                "/login", {"email": LOCK_USER, "password": "wrongpass1"}, "/login"
-            )
-            self.assertEqual(response.status_code, 200)
-
-        locked = self._login(LOCK_USER, "lockpass99")
-        self.assertIn("Too many failed login attempts", locked.get_data(as_text=True))
-
-    def test_audit_log_records_and_page(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-
-        self._post(
-            "/admin/transport-types",
-            {"name": "IT TEST Audited", "description": ""},
-            "/admin/transport-types",
-        )
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT COUNT(*) c FROM audit_log "
-                    "WHERE action='admin.add_transport_type' "
-                    "AND details='IT TEST Audited'"
-                )
-                self.assertGreaterEqual(cur.fetchone()["c"], 1)
-                cur.execute("SELECT id FROM transport_types WHERE name='IT TEST Audited'")
-                tt_id = cur.fetchone()["id"]
-        finally:
-            conn.close()
-
-        self._post(f"/admin/transport-types/{tt_id}/toggle", {}, "/admin/transport-types")
-        body = self.client.get("/admin/audit").get_data(as_text=True)
-        self.assertIn("admin.", body)
-
-        search = self.client.get("/admin/audit?q=Audited").get_data(as_text=True)
-        self.assertIn("IT TEST Audited", search)
-
-        self.assertEqual(app.test_client().get("/admin/audit").status_code, 302)
-
-    # --------------------------------------------- M18: admin CSV exports
-    def test_admin_export_calculations_csv(self):
-        self._login_as_temp_user()
-        transport_id, passenger_id = self._active_ids()
-        self.client.post(
-            "/api/calculate-fare",
-            json={"transport_type_id": transport_id,
-                  "passenger_type_id": passenger_id, "distance": 5},
-        )
-        self._post("/logout", {}, "/account")
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-
-        response = self.client.get("/admin/export/calculations.csv")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content_type.split(";")[0], "text/csv")
-        body = response.get_data(as_text=True)
-        self.assertIn("Transport", body.splitlines()[0])
-        self.assertGreaterEqual(len(body.splitlines()), 2)
-
-    def test_admin_export_users_csv(self):
-        self._login(ADMIN_EMAIL, ADMIN_PASSWORD)
-        response = self.client.get("/admin/export/users.csv")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content_type.split(";")[0], "text/csv")
-        body = response.get_data(as_text=True)
-        self.assertIn("Email", body.splitlines()[0])
-        self.assertIn(ADMIN_EMAIL, body)
-
-    def test_admin_exports_require_admin(self):
-        for path in ("/admin/export/calculations.csv", "/admin/export/users.csv"):
-            self.assertEqual(app.test_client().get(path).status_code, 302, path)
-        self._login_as_temp_user()
-        for path in ("/admin/export/calculations.csv", "/admin/export/users.csv"):
-            self.assertEqual(self.client.get(path).status_code, 403, path)
 
 
 if __name__ == "__main__":

@@ -1,119 +1,124 @@
-<script>
-    window.FareCalConfig = window.FareCalConfig || {};
-    window.FareCalConfig.loggedIn = {{ 'true' if current_user else 'false' }};
-</script>
-
 <div id="calculatorAlert"></div>
 
-<div class="row justify-content-center g-4">
+<!-- Row 1: route controls + map -->
+<div class="row g-4">
 
-    <!-- Calculator form -->
-    <div class="col-lg-5 print-hide">
+    <div class="col-12 col-lg-5">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white fw-bold">
-                Calculate Your Fare
-            </div>
-            <div class="card-body">
-                <form id="fareForm" novalidate>
-
-                    <div class="mb-3">
-                        <label for="routePreset" class="form-label">
-                            Common Routes <span class="text-muted">(optional)</span>
-                        </label>
-                        <select id="routePreset" class="form-select">
-                            <option value="" selected>Developing…</option>
-                        </select>
-                        <div class="form-text">
-                            Pick a saved route to auto-fill the transportation and distance below.
-                        </div>
+            <div class="card-header bg-white fw-bold">Your Route</div>
+            <div class="card-body d-flex flex-column">
+                <div class="mb-3">
+                    <label for="originInput" class="form-label">Starting Point</label>
+                    <div id="originWrap" class="position-relative">
+                        <input type="text" id="originInput" class="form-control"
+                               placeholder="Search starting location…" autocomplete="off">
+                        <div id="originResults" class="list-group destination-results d-none"></div>
                     </div>
-
-                    <div class="mb-3">
-                        <label for="transportType" class="form-label">Transportation</label>
-                        <select id="transportType" class="form-select" name="transport_type_id" required>
-                            <option value="" selected>Loading transportation types…</option>
-                        </select>
+                    <button type="button" class="btn btn-outline-primary w-100 mt-2" id="locateBtn">
+                        <span class="spinner-border spinner-border-sm d-none" id="locateSpinner"
+                              role="status" aria-hidden="true"></span>
+                        <span id="locateBtnText">Use My Current Location</span>
+                    </button>
+                    <div class="form-text">
+                        Or tap the map to set your starting point manually.
                     </div>
+                </div>
 
-                    <div class="mb-3">
-                        <label for="distance" class="form-label">Distance</label>
-                        <div class="input-group">
-                            <input type="number" id="distance" name="distance"
-                                   class="form-control" min="0.5" max="500" step="0.01"
-                                   placeholder="Enter distance" required>
-                            <span class="input-group-text">km</span>
-                        </div>
+                <div class="text-center mb-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            id="swapLocationsBtn" title="Swap starting point and destination">
+                        Swap Locations
+                    </button>
+                </div>
+
+                <div class="mt-auto">
+                    <label for="destinationInput" class="form-label">Destination</label>
+                    <div class="input-group">
+                        <input type="text" id="destinationInput" class="form-control"
+                               placeholder="Search a place, e.g. SM City Cebu"
+                               autocomplete="off">
+                        <button type="button" class="btn btn-outline-primary"
+                                id="destinationSearchBtn">Search</button>
                     </div>
-
-                    <div class="mb-4">
-                        <label for="passengerType" class="form-label">Passenger Type</label>
-                        <select id="passengerType" class="form-select" name="passenger_type_id" required>
-                            <option value="" selected>Loading passenger types…</option>
-                        </select>
-                        <div class="form-text" id="discountHint"></div>
+                    <div id="destinationWrap" class="position-relative">
+                        <div id="destinationResults" class="list-group destination-results d-none"></div>
                     </div>
-
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-primary btn-lg" id="calculateBtn">
-                            <span class="spinner-border spinner-border-sm d-none" id="calcSpinner"
-                                  role="status" aria-hidden="true"></span>
-                            <span id="calcBtnText">Calculate Fare</span>
-                        </button>
+                    <div class="form-text" id="destinationStatus">
+                        Type a place name, then pick from the suggestions.
                     </div>
+                </div>
 
-                </form>
+                <div class="mt-3 pt-3 border-top d-flex flex-wrap gap-2 align-items-center">
+                    <button type="button" class="btn btn-primary btn-lg px-4"
+                            id="openCalculateBtn" disabled>
+                        Calculate Your Fare
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-lg d-none"
+                            id="totalFareBox" title="View the full breakdown">
+                        Total to Pay: <strong id="totalFareAmount">—</strong>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Result panel -->
-    <div class="col-lg-7">
-        <div class="card border-0 shadow-sm h-100 d-none" id="resultPanel">
+    <div class="col-12 col-lg-7">
+        <div class="card border-0 shadow-sm map-card h-100">
             <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
-                <span>Fare Breakdown</span>
-                <span class="print-hide">
-                    <button type="button" class="btn btn-sm btn-outline-success d-none"
-                            id="saveTripBtn">
-                        Save this trip
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary"
-                            onclick="window.print()">
-                        Print estimate
-                    </button>
-                </span>
+                <span>Route Map</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary d-none"
+                        id="resetRouteBtn">Clear Route</button>
             </div>
-            <div class="card-body">
-                <div class="print-only mb-3">
-                    <h5 class="fw-bold mb-0">FareCal — Fare Estimate</h5>
-                    <div class="small text-muted" id="resultPrintMeta"></div>
-                </div>
+            <div class="card-body d-flex flex-column p-2">
+                <div id="map"></div>
+                <div id="routeSummary" class="route-summary d-none mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Fare Breakdown modal (STEP 3): hosts the full estimate. -->
+<div class="modal fade" id="fareBreakdownModal" tabindex="-1"
+     aria-labelledby="fareBreakdownModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fareBreakdownModalLabel">Fare Breakdown</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
                 <dl class="row mb-0">
-                    <dt class="col-sm-5">Transportation</dt>
-                    <dd class="col-sm-7" id="resultTransport">—</dd>
+                    <dt class="col-sm-3">Route</dt>
+                    <dd class="col-sm-9" id="resultRoute">—</dd>
 
-                    <dt class="col-sm-5">Distance</dt>
-                    <dd class="col-sm-7" id="resultDistance">—</dd>
+                    <dt class="col-sm-3">Transportation</dt>
+                    <dd class="col-sm-9" id="resultTransport">—</dd>
 
-                    <dt class="col-sm-5">Passenger Type</dt>
-                    <dd class="col-sm-7" id="resultPassenger">—</dd>
+                    <dt class="col-sm-3">Distance</dt>
+                    <dd class="col-sm-9" id="resultDistance">—</dd>
 
-                    <hr class="my-2">
-
-                    <dt class="col-sm-5">Regular Fare</dt>
-                    <dd class="col-sm-7" id="resultRegularFare">—</dd>
-
-                    <dt class="col-sm-5">Discount Rate</dt>
-                    <dd class="col-sm-7" id="resultDiscountRate">—</dd>
-
-                    <dt class="col-sm-5">Discount Amount</dt>
-                    <dd class="col-sm-7" id="resultDiscountAmount">—</dd>
+                    <dt class="col-sm-3">Passenger Type</dt>
+                    <dd class="col-sm-9" id="resultPassenger">—</dd>
 
                     <hr class="my-2">
 
-                    <dt class="col-sm-5">
+                    <dt class="col-sm-3">Regular Fare</dt>
+                    <dd class="col-sm-9" id="resultRegularFare">—</dd>
+
+                    <dt class="col-sm-3">Discount Rate</dt>
+                    <dd class="col-sm-9" id="resultDiscountRate">—</dd>
+
+                    <dt class="col-sm-3">Discount Amount</dt>
+                    <dd class="col-sm-9" id="resultDiscountAmount">—</dd>
+
+                    <hr class="my-2">
+
+                    <dt class="col-sm-3">
                         <span class="fw-bold">Estimated Fare</span>
                     </dt>
-                    <dd class="col-sm-7">
+                    <dd class="col-sm-9">
                         <span class="fs-3 fw-bold text-primary" id="resultFinalFare">—</span>
                     </dd>
                 </dl>
@@ -121,15 +126,84 @@
                 <div id="resultNotes" class="mt-3"></div>
                 <div id="resultSource" class="small text-muted mt-3"></div>
             </div>
-        </div>
-
-        <div class="card border-0 shadow-sm" id="resultPlaceholder">
-            <div class="card-body text-center text-muted py-5">
-                <p class="mb-0">
-                    Select a transportation type, enter your distance, choose a passenger
-                    type, then press <strong>Calculate Fare</strong> to see the breakdown here.
-                </p>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary"
+                        data-bs-dismiss="modal">Close</button>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- Calculate Your Fare modal (STEP 2) -->
+<div class="modal fade" id="calculateFareModal" tabindex="-1"
+     aria-labelledby="calculateFareModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <form id="modalFareForm" class="modal-content" novalidate>
+            <div class="modal-header">
+                <h5 class="modal-title" id="calculateFareModalLabel">Calculate Your Fare</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+
+                <div id="modalAlert"></div>
+
+                <div class="mb-3">
+                    <label for="routePreset" class="form-label">
+                        Common Routes <span class="text-muted">(optional)</span>
+                    </label>
+                    <select id="routePreset" class="form-select">
+                        <option value="" selected>Loading common routes…</option>
+                    </select>
+                    <div class="form-text">
+                        Pick a saved route to auto-fill the transportation and distance.
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="transportType" class="form-label">Transportation</label>
+                    <select id="transportType" class="form-select" required>
+                        <option value="" selected>Loading transportation types…</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label for="passengerType" class="form-label">Passenger Type</label>
+                    <select id="passengerType" class="form-select" required>
+                        <option value="" selected>Loading passenger types…</option>
+                    </select>
+                    <div class="form-text" id="discountHint"></div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="distance" class="form-label">Route Distance</label>
+                    <div class="input-group">
+                        <input type="number" id="distance" class="form-control"
+                               min="0.5" max="500" step="0.01" placeholder="Enter distance">
+                        <span class="input-group-text">km</span>
+                    </div>
+                    <div class="form-text" id="distanceHint">
+                        Please select a starting point and destination first to calculate a route.
+                    </div>
+                </div>
+
+                <div class="border-top pt-3">
+                    <div class="fw-bold mb-1">Fare Rate</div>
+                    <div id="ratePanelBody">
+                        Select a transportation type to see its current fare structure.
+                    </div>
+                    <div id="ratePreview" class="d-none mt-3 pt-3 border-top"></div>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="submit" class="btn btn-primary" id="calculateBtn" disabled>
+                    <span class="spinner-border spinner-border-sm d-none" id="calcSpinner"
+                          role="status" aria-hidden="true"></span>
+                    <span id="calcBtnText">Calculate Fare</span>
+                </button>
+            </div>
+        </form>
     </div>
 </div>

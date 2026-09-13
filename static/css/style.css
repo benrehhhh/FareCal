@@ -27,17 +27,9 @@ body {
     letter-spacing: 0.3px;
 }
 
-.brand-mark {
-    display: inline-block;
-    width: 1.9rem;
-    height: 1.9rem;
-    line-height: 1.9rem;
-    text-align: center;
-    background-color: #f2b705;
-    color: var(--fc-accent-dark);
-    border-radius: 0.4rem;
-    font-weight: 700;
-    margin-right: 0.25rem;
+.brand-bus {
+    vertical-align: -4px;
+    margin-right: 0.35rem;
 }
 
 .app-header .nav-link {
@@ -106,71 +98,119 @@ a:hover {
     text-decoration: underline !important;
 }
 
-/* Admin sidebar */
-.admin-sidebar {
-    background-color: var(--fc-bg-soft);
-    border-right: 1px solid var(--fc-border);
-    min-height: calc(100vh - 56px);
-}
-
-.admin-sidebar .nav-link {
-    color: #495057;
-    border-radius: 0.35rem;
-    padding: 0.5rem 0.75rem;
-}
-
-.admin-sidebar .nav-link:hover {
-    background-color: #e9eef5;
-    color: var(--fc-accent-dark);
-}
-
-.admin-sidebar .nav-link.active {
-    background-color: var(--fc-accent);
-    color: #ffffff;
-    font-weight: 600;
-}
-
 /* -----------------------------------------------------------
-   Print receipt
-   The fare breakdown panel can be printed as a receipt.
+   Leaflet map
+   The interactive map is placed inside a Bootstrap card on the
+   calculator homepage. The card body is a flex column and the map
+   grows to fill whatever height its left-hand card reaches.
    ----------------------------------------------------------- */
-.print-only {
-    display: none;
+.map-card .card-body {
+    min-height: 380px;
 }
 
-@media print {
-    .print-hide {
-        display: none !important;
-    }
+#map {
+    flex-grow: 1;
+    width: 100%;
+    min-height: 380px;
+    border-radius: 0.35rem;
+    z-index: 0;
+}
 
-    .print-only {
-        display: block !important;
+@media (max-width: 767.98px) {
+    #map {
+        min-height: 340px;
     }
+}
 
-    .app-header,
-    .app-footer {
-        display: none !important;
-    }
+/* Start/Destination markers (Leaflet divIcons) */
+.fc-start-marker,
+.fc-end-marker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1;
+}
 
-    body {
-        background-color: #ffffff !important;
-        color: #000000;
-    }
+.fc-marker-pin {
+    width: 26px;
+    height: 26px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid #ffffff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
 
-    main.container {
-        width: 100% !important;
-        max-width: 100% !important;
-        padding: 0 !important;
-    }
+.fc-start-marker .fc-marker-pin {
+    background-color: #198754; /* bootstrap success green */
+}
 
-    #resultPanel {
-        display: block !important;
-        border: 1px solid #000000;
-        box-shadow: none !important;
-    }
+.fc-end-marker .fc-marker-pin {
+    background-color: var(--fc-accent);
+}
 
-    #resultPanel .card-header {
-        border-bottom: 1px solid #000000;
-        background: none !important;
-    }
+.fc-marker-label {
+    margin-top: 2px;
+    padding: 1px 6px;
+    border-radius: 0.3rem;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 1px solid var(--fc-border);
+    font-size: 0.7rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+/* Destination search results dropdown */
+.destination-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 2000; /* above the Leaflet map's internal panes */
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--fc-border);
+    border-radius: 0.35rem;
+}
+
+.destination-results .list-group-item {
+    cursor: pointer;
+}
+
+/* Route summary strip (under the map) */
+.route-summary {
+    text-align: center;
+    font-size: 0.9rem;
+    color: #495057;
+    background-color: var(--fc-bg-soft);
+    border: 1px solid var(--fc-border);
+    border-radius: 0.35rem;
+    padding: 0.5rem;
+}
+
+.route-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.route-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.5rem;
+    background-color: #ffffff;
+    border: 1px solid var(--fc-border);
+    border-radius: 0.35rem;
+}
+
+.route-stat span {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #6c757d;
+}
+
+.route-stat strong {
+    font-size: 1.05rem;
+    color: var(--fc-accent-dark);
 }

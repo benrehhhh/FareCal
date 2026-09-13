@@ -18,6 +18,9 @@ class Config:
     FLASK_ENV = os.getenv("FLASK_ENV", "development")
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
+    # Cookie security — set SESSION_COOKIE_SECURE=true behind HTTPS
+    SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+
     # MySQL connection settings
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = int(os.getenv("DB_PORT", "3306"))
@@ -28,11 +31,5 @@ class Config:
     # Fare calculator limits
     MAX_DISTANCE_KM = int(os.getenv("MAX_DISTANCE_KM", "500"))
 
-    # Account security / login throttling
-    MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
-    LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "900"))
-
 
 MAX_DISTANCE_KM = Config.MAX_DISTANCE_KM
-MAX_LOGIN_ATTEMPTS = Config.MAX_LOGIN_ATTEMPTS
-LOGIN_LOCKOUT_SECONDS = Config.LOGIN_LOCKOUT_SECONDS

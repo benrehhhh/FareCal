@@ -1,7 +1,8 @@
 """Database setup script.
 
-Creates the farecal_db database, all tables, sample seed data, and a
-default administrator account. Reads MySQL credentials from .env.
+Creates the farecal_db database, all tables, and sample seed data. It does
+not create user accounts — FareCal is a calculator-only app. Reads MySQL
+credentials from .env.
 
 Safe to run multiple times — existing rows are preserved.
 
@@ -15,7 +16,6 @@ from pathlib import Path
 
 import pymysql
 from dotenv import load_dotenv
-from werkzeug.security import generate_password_hash
 
 load_dotenv()
 
@@ -24,10 +24,6 @@ DB_PORT = int(os.getenv("DB_PORT", "3306"))
 DB_NAME = os.getenv("DB_NAME", "farecal_db")
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@farecal.ph")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
-ADMIN_NAME = os.getenv("ADMIN_NAME", "FareCal Administrator")
 
 SCHEMA_FILE = Path(__file__).parent / "schema.sql"
 
@@ -43,29 +39,48 @@ def run_schema(conn):
     print(f"[setup] Schema executed: {len(statements)} statement(s)")
 
 
-def seed_admin(conn):
-    """Create the default administrator if it does not already exist."""
-    with conn.cursor() as cur:
-        cur.execute("SELECT id FROM users WHERE email = %s", (ADMIN_EMAIL,))
-        if cur.fetchone():
-            print(f"[setup] Admin '{ADMIN_EMAIL}' already exists - skipping.")
-            return
-        password_hash = generate_password_hash(ADMIN_PASSWORD)
-        cur.execute(
-            """
-            INSERT INTO users (name, email, password_hash, role)
-            VALUES (%s, %s, %s, 'admin')
-            """,
-            (ADMIN_NAME, ADMIN_EMAIL, password_hash),
-        )
+ROUTE_COLUMNS = {
+    "origin_name": "VARCHAR(100) NULL",
+    "destination_name": "VARCHAR(100) NULL",
+    "origin_latitude": "DECIMAL(10, 7) NULL",
+    "origin_longitude": "DECIMAL(10, 7) NULL",
+    "destination_latitude": "DECIMAL(10, 7) NULL",
+    "destination_longitude": "DECIMAL(10, 7) NULL",
+    "estimated_duration": "INT UNSIGNED NULL",
+}
+
+
+def ensure_route_columns(conn):
+    """Add route-metadata columns to a fare/history table if missing.
+
+    MySQL has no `ADD COLUMN IF NOT EXISTS`, so inspect information_schema
+    and ALTER only the columns that are absent. Safe to run repeatedly;
+    existing rows are preserved.
+    """
+    for table in ("fare_calculations",):
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COLUMN_NAME
+                FROM information_schema.columns
+                WHERE table_schema = %s AND table_name = %s
+                """,
+                (DB_NAME, table),
+            )
+            existing = {row["COLUMN_NAME"] for row in cur.fetchall()}
+            for name, definition in ROUTE_COLUMNS.items():
+                if name in existing:
+                    continue
+                cur.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
+                )
+                print(f"[setup] Added {table}.{name}")
     conn.commit()
-    print(f"[setup] Admin user created: {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
 
 
 def report_counts(conn):
     """Print a short summary of seeded data so the result is visible."""
     table = {
-        "users": "SELECT COUNT(*) AS c FROM users",
         "transport_types": "SELECT COUNT(*) AS c FROM transport_types",
         "passenger_types": "SELECT COUNT(*) AS c FROM passenger_types",
         "fare_rates": "SELECT COUNT(*) AS c FROM fare_rates",
@@ -100,7 +115,7 @@ def main():
     try:
         print(f"[setup] Connected to MySQL on {DB_HOST}:{DB_PORT}")
         run_schema(conn)
-        seed_admin(conn)
+        ensure_route_columns(conn)
         report_counts(conn)
         print(f"[setup] Done. Database '{DB_NAME}' is ready.")
     finally:
