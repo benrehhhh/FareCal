@@ -30,7 +30,6 @@ a single-purpose calculator: pick a route, get the fare.
 ```
 FareCal/
 ├── app.py                     # Flask app factory + /healthz
-├── wsgi.py                    # Gunicorn / PythonAnywhere entry point
 ├── config.py                  # Reads settings from .env
 ├── requirements.txt
 ├── .env.example               # Copy to .env and fill in your values
@@ -159,7 +158,7 @@ FareCal deploys as two services: a **MySQL database** (on Railway) and a
 
 1. Connect your GitHub repo (`benrehhhh/FareCal`) to Render.
 2. **Build command:** `pip install -r requirements.txt`
-3. **Start command:** `gunicorn wsgi:app`
+3. **Start command:** `gunicorn app:app`
 4. **Health check path:** `/healthz`
 5. Add environment variables (from your Railway MySQL credentials):
    ```
